@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""
-mi-comando.py — versión tolerante a argumentos.
-Comportamiento: si no se pasa subcomando, ejecuta 'discover' por defecto.
-"""
-
 import argparse
 import socket
 import sys
 import time
 import uuid
-import platform
+import fcntl
+import struct
 
 BROADCAST_PORT = 50000
 BUFFER_SIZE = 1024
@@ -18,7 +14,25 @@ DISCOVER_MESSAGE_PREFIX = "DISCOVER_REQUEST"
 RESPONSE_PREFIX = "DISCOVER_RESPONSE"
 PAYLOAD = "a1h1"
 
-def discover_and_send(broadcast_ip="255.255.255.255", port=BROADCAST_PORT, send=False, timeout=DISCOVER_TIMEOUT):
+
+def get_interface_broadcast(interface):
+    """Devuelve la dirección de broadcast de una interfaz como '192.168.1.255'."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        return socket.inet_ntoa(fcntl.ioctl(
+            s.fileno(),
+            0x8919,  # SIOCGIFBRDADDR
+            struct.pack('256s', interface.encode('utf-8')[:15])
+        )[20:24])
+    except Exception as e:
+        print(f"[net] Error obteniendo broadcast de {interface}: {e}")
+        return "255.255.255.255"
+
+
+def discover_and_send(interface="enp0s3", port=BROADCAST_PORT, send=False, timeout=DISCOVER_TIMEOUT):
+    broadcast_ip = get_interface_broadcast(interface)
+    print(f"[discover] usando interfaz '{interface}' con broadcast {broadcast_ip}")
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.settimeout(timeout)
@@ -70,46 +84,30 @@ def discover_and_send(broadcast_ip="255.255.255.255", port=BROADCAST_PORT, send=
 
     return discovered
 
+
 def main():
-    parser = argparse.ArgumentParser(prog="mi-comando", description="Comando LAN cooperativo (modo discover por defecto si no se especifica)")
+    parser = argparse.ArgumentParser(
+        prog="mi-comando",
+        description="Comando LAN cooperativo (modo discover por defecto si no se especifica)"
+    )
     sub = parser.add_subparsers(dest="cmd")
 
     p_discover = sub.add_parser("discover", help="Descubre listeners en la LAN")
-    p_discover.add_argument("--broadcast", default="255.255.255.255", help="IP de broadcast")
+    p_discover.add_argument("--iface", "-i", default="enp0s3", help="Interfaz de red (por defecto enp0s3)")
     p_discover.add_argument("--port", "-p", type=int, default=BROADCAST_PORT, help=f"Puerto UDP (por defecto {BROADCAST_PORT})")
     p_discover.add_argument("--timeout", "-t", type=float, default=DISCOVER_TIMEOUT, help="Timeout para recibir respuestas (s)")
-    p_discover.add_argument("--send", action="store_true", help=f"Enviar '{PAYLOAD}' a los hosts detectados (usar con precaución)")
+    p_discover.add_argument("--send", action="store_true", help=f"Enviar '{PAYLOAD}' a los hosts detectados")
 
-
-    # legacy action
-    p_action = sub.add_parser("action", help="(legacy) start/stop/status")
-    p_action.add_argument("accion", choices=["start","stop","status"])
-
-
-
-    # ---- Manejo tolerante: si no hay subcomando -> forzamos discover por defecto ----
     if len(sys.argv) == 1:
-        # comportamiento por defecto: discover con valores por defecto
         print("[main] no se especificó subcomando — ejecutando 'discover' por defecto.")
         discover_and_send()
         return
 
-    # parseamos normalmente
     args = parser.parse_args()
 
     if args.cmd == "discover":
-        discover_and_send(broadcast_ip=args.broadcast, port=args.port, send=args.send, timeout=args.timeout)
+        discover_and_send(interface=args.iface, port=args.port, send=args.send, timeout=args.timeout)
 
-    elif args.cmd == "action":
-        if args.accion == "start":
-            print("Iniciando servicio...")
-        elif args.accion == "stop":
-            print("Deteniendo servicio...")
-        elif args.accion == "status":
-            print("Estado del servicio: OK")
-        else:
-            print(f"Acción no reconocida: {args.accion}")
-            sys.exit(1)
 
 if __name__ == "__main__":
     main()
