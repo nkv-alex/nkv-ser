@@ -63,22 +63,37 @@ def detect_interfaces():
 
 def build_netplan_yaml(existing_yaml, interfaces):
     """
-    Modifica el netplan cargado desde YAML, asignando dhcp4:no
-    y addresses con las IPs detectadas.
+    Modifica o crea el netplan existente, asignando:
+      - dhcp4: yes en interfaces externas
+      - dhcp4: no + address + nameservers + optional routes en internas
     """
     if "network" not in existing_yaml:
         existing_yaml["network"] = {"version": 2, "renderer": "networkd", "ethernets": {}}
-
     if "ethernets" not in existing_yaml["network"]:
         existing_yaml["network"]["ethernets"] = {}
 
-    for iface, ip in interfaces.items():
+    for iface, data in interfaces.items():
+        ip = data.get("ip")
+        tipo = data.get("type")  # 'internal' o 'external'
         iface_data = existing_yaml["network"]["ethernets"].get(iface, {})
-        iface_data["dhcp4"] = False
-        iface_data["addresses"] = [ip]
+
+        if tipo == "external":
+            iface_data["dhcp4"] = True
+            iface_data["optional"] = True
+        else:
+            iface_data["dhcp4"] = False
+            iface_data["addresses"] = [ip]
+            iface_data["nameservers"] = {"addresses": ["8.8.8.8", "1.1.1.1"]}
+            # Si quieres gateway opcional interno:
+            iface_data["routes"] = [{
+                "to": "default",
+                "via": str(ipaddress.IPv4Interface(ip).ip)
+            }]
+
         existing_yaml["network"]["ethernets"][iface] = iface_data
 
     return existing_yaml
+
 
 
 def write_netplan_file(yaml_text):
