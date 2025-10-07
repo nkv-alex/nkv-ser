@@ -31,18 +31,34 @@ def backup_file(path):
         shutil.copy2(path, dest)
 
 def detect_interfaces():
-    """Detecta interfaces con IPs y clasifica internas/externas"""
-    result = run("ip -o -4 addr show | awk '{print $2,$4}'|grep -v 'lo' |grep -v 'docker'", check=True)
+    """Detecta interfaces con IPs y pregunta si son internas o externas"""
+    result = run("ip -o -4 addr show | awk '{print $2,$4}' | grep -v 'lo' | grep -v 'docker'", check=True)
     internals = {}
     externals = {}
+
+    if not result.stdout.strip():
+        print("[ERROR] No se encontraron interfaces con IP asignada.")
+        return internals, externals
+
+    print("\n=== Detección de interfaces ===")
     for line in result.stdout.strip().splitlines():
         iface, addr = line.split()
         ip = ipaddress.IPv4Interface(addr)
-        if ip.ip.is_private:
-            internals[iface] = str(ip)
-        else:
+        print(f"\nInterfaz detectada: {iface}")
+        print(f"Dirección IP: {ip}")
+        tipo = input("¿Esta interfaz es interna (i) o externa (e)? [i/e]: ").strip().lower()
+
+        if tipo == "e":
             externals[iface] = str(ip)
+        else:
+            internals[iface] = str(ip)
+
+    print("\nResumen de selección:")
+    print(f"  Internas: {list(internals.keys())}")
+    print(f"  Externas: {list(externals.keys())}")
+
     return internals, externals
+
 
 def build_netplan_yaml(interfaces):
     lines = ["network:", "  version: 2", "  renderer: networkd", "  ethernets:"]
