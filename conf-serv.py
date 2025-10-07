@@ -10,6 +10,8 @@ import ipaddress
 import yaml
 import sys
 from pathlib import Path
+import re
+
 
 NETPLAN_DEFAULT_PATH = "/etc/netplan/01-nat.yaml"
 BACKUP_DIR = "/etc/netplan/backups_nat_helper"
@@ -321,66 +323,72 @@ def configure_ssh():
     config_path = "/etc/ssh/sshd_config"
     backup_path = f"{config_path}.bak"
 
-    #Backup de seguridad
+    # 1️⃣ Backup
     if not os.path.exists(backup_path):
-        print(f"[INFO] Generando backup en {backup_path}")
+        print(f"[INFO] Generando backup: {backup_path}")
         run(f"sudo cp {config_path} {backup_path}")
     else:
         print(f"[INFO] Backup existente: {backup_path}")
 
-    #Solicitud de parámetros
+    # 2️⃣ Parámetros solicitados
     print("\n=== Parámetros SSH ===")
     puerto = input("Puerto SSH (default 22): ").strip() or "22"
     root_login = input("¿Permitir login de root? (yes/no) [no]: ").strip().lower() or "no"
 
-    #Detección de usuarios locales
+    # 3️⃣ Detección de usuarios
     print("\n=== Detección de usuarios locales ===")
     res = run("awk -F: '$3 >= 1000 && $3 < 60000 {print $1}' /etc/passwd", check=False)
     users = res.stdout.strip().splitlines()
-    if not users:
-        print("[WARN] No se encontraron usuarios locales estándar.")
-    else:
+    if users:
         print("Usuarios detectados:")
         for u in users:
             print(f"  - {u}")
-    allowed = input("\nUsuarios que podrán acceder por SSH (separar por espacio, vacío = todos): ").strip()
-    allow_users_line = f"AllowUsers {allowed}" if allowed else ""
+    else:
+        print("[WARN] No se encontraron usuarios normales en el sistema.")
+    allowed = input("\nUsuarios permitidos por SSH (espacio = todos): ").strip()
+    allow_users = f"AllowUsers {allowed}" if allowed else ""
 
-    #Actualizar configuración existente
+    # 4️⃣ Lectura del archivo
     with open(config_path, "r") as f:
         lines = f.readlines()
 
-    def replace_or_add(param, value):
-        nonlocal lines
-        found = False
-        for i, l in enumerate(lines):
-            if l.strip().startswith(param):
+    def set_param(param, value):
+        """
+        Busca la línea correspondiente en sshd_config, descomenta si es necesario,
+        y cambia el valor. Si no existe, la añade al final.
+        """
+        pattern = re.compile(rf'^\s*#?\s*{re.escape(param)}\b', re.IGNORECASE)
+        replaced = False
+        for i, line in enumerate(lines):
+            if pattern.match(line):
                 lines[i] = f"{param} {value}\n"
-                found = True
+                replaced = True
                 break
-        if not found:
-            lines.append(f"{param} {value}\n")
+        if not replaced:
+            lines.append(f"\n{param} {value}\n")
 
-    replace_or_add("Port", puerto)
-    replace_or_add("PermitRootLogin", root_login)
-    replace_or_add("PasswordAuthentication", "yes")
-    replace_or_add("PubkeyAuthentication", "yes")
-    replace_or_add("ChallengeResponseAuthentication", "no")
-    replace_or_add("UsePAM", "yes")
-    replace_or_add("X11Forwarding", "no")
-    replace_or_add("AllowTcpForwarding", "yes")
-    if allow_users_line:
-        replace_or_add("AllowUsers", allowed)
+    # 5️⃣ Aplicar parámetros clave
+    set_param("Port", puerto)
+    set_param("PermitRootLogin", root_login)
+    set_param("PasswordAuthentication", "yes")
+    set_param("PubkeyAuthentication", "yes")
+    set_param("ChallengeResponseAuthentication", "no")
+    set_param("UsePAM", "yes")
+    set_param("X11Forwarding", "no")
+    set_param("AllowTcpForwarding", "yes")
+    if allow_users:
+        set_param("AllowUsers", allowed)
 
-    #Guardar nueva configuración
-    with open("/tmp/sshd_config_tmp", "w") as f:
+    # 6️⃣ Guardar
+    tmp_file = "/tmp/sshd_config_tmp"
+    with open(tmp_file, "w") as f:
         f.writelines(lines)
 
-    run(f"sudo mv /tmp/sshd_config_tmp {config_path}")
+    run(f"sudo mv {tmp_file} {config_path}")
     run("sudo chmod 600 /etc/ssh/sshd_config")
 
-    #Habilitar y reiniciar servicio
-    print("\n[INFO] Habilitando y reiniciando SSH...")
+    # 7️⃣ Reiniciar servicio
+    print("\n[INFO] Aplicando cambios y reiniciando SSH...")
     run("sudo systemctl enable ssh", check=False)
     run("sudo systemctl restart ssh", check=False)
 
@@ -388,10 +396,9 @@ def configure_ssh():
     ip = run("hostname -I | awk '{print $1}'", check=False)
     print(f"\n[OK] SSH operativo en {ip.stdout.strip()}:{puerto}")
     print(f"[INFO] RootLogin: {root_login}")
-    if allow_users_line:
+    if allowed:
         print(f"[INFO] Usuarios permitidos: {allowed}")
-    print(f"[INFO] Backup disponible en: {backup_path}")
-
+    print(f"[INFO] Backup en: {backup_path}")
 
 
 def main():
