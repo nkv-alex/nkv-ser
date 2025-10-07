@@ -31,7 +31,12 @@ def detect_interfaces():
     Devuelve dict: { iface: {"ip": "192.168.1.1/24", "type":"internal"|"external"} }
     """
     try:
-        res = run("ip -o -4 addr show | awk '{print $2,$4}' | grep -v ' lo' | grep -v 'docker' || true", check=False)
+        # Filtra interfaces que no sean lo, docker, veth, br-, virbr, etc.
+        res = run(
+            "ip -o -4 addr show | awk '{print $2,$4}' | "
+            "grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
+            check=False
+        )
     except Exception as e:
         print(f"[ERROR] Al ejecutar ip: {e}")
         return {}
@@ -68,12 +73,13 @@ def detect_interfaces():
         interfaces[iface] = {"ip": str(ipif), "type": t}
 
     print("\nResumen de selección:")
-    intern = [k for k,v in interfaces.items() if v["type"]=="internal"]
-    extern = [k for k,v in interfaces.items() if v["type"]=="external"]
+    intern = [k for k, v in interfaces.items() if v["type"] == "internal"]
+    extern = [k for k, v in interfaces.items() if v["type"] == "external"]
     print(f"  Internas: {intern}")
     print(f"  Externas: {extern}")
 
     return interfaces
+
 
 def build_netplan_yaml(existing_yaml, interfaces):
     """
