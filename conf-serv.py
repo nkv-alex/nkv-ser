@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-"""
-conf-serv.py - Configuración NAT automática Ubuntu 22.04
-- Detecta interfaces y sus IPs
-- Genera / modifica /etc/netplan/01-nat.yaml (dhcp4: no)
-- Habilita IP forwarding
-- Genera reglas NAT iptables
-- Guarda reglas en /etc/iptables/rules.v4 para iptables-persistent
-"""
+# conf-serv.py
+# Script para Ubuntu 22.04: detectar interfaces, preguntar tipo, actualizar netplan, habilitar forwarding, crear reglas iptables y persistirlas.
 
 import os
 import subprocess
@@ -14,8 +8,9 @@ import shutil
 from datetime import datetime
 import ipaddress
 import yaml
+import sys
 
-NETPLAN_FILE = "/etc/netplan/01-nat.yaml"
+NETPLAN_DEFAULT_PATH = "/etc/netplan/01-nat.yaml"
 BACKUP_DIR = "/etc/netplan/backups_nat_helper"
 IPTABLES_RULES_V4 = "/etc/iptables/rules.v4"
 SYSCTL_CONF = "/etc/sysctl.conf"
@@ -32,104 +27,156 @@ def backup_file(path):
         shutil.copy2(path, dest)
 
 def detect_interfaces():
-    """Detecta interfaces con IPs y pregunta si son internas o externas"""
-    result = run("ip -o -4 addr show | awk '{print $2,$4}' | grep -v 'lo' | grep -v 'docker'", check=True)
-    internals = {}
-    externals = {}
+    """Detecta interfaces con IPs y pregunta si son internas o externas.
+    Devuelve dict: { iface: {"ip": "192.168.1.1/24", "type":"internal"|"external"} }
+    """
+    try:
+        res = run("ip -o -4 addr show | awk '{print $2,$4}' | grep -v ' lo' | grep -v 'docker' || true", check=False)
+    except Exception as e:
+        print(f"[ERROR] Al ejecutar ip: {e}")
+        return {}
 
-    if not result.stdout.strip():
-        print("[ERROR] No se encontraron interfaces con IP asignada.")
-        return internals, externals
+    out = res.stdout.strip()
+    if not out:
+        print("[ERROR] No se encontraron interfaces con IPv4 asignada.")
+        return {}
 
+    interfaces = {}
     print("\n=== Detección de interfaces ===")
-    for line in result.stdout.strip().splitlines():
-        iface, addr = line.split()
-        ip = ipaddress.IPv4Interface(addr)
-        print(f"\nInterfaz detectada: {iface}")
-        print(f"Dirección IP: {ip}")
-        tipo = input("¿Esta interfaz es interna (i) o externa (e)? [i/e]: ").strip().lower()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        iface, addr = parts[0], parts[1]
+        try:
+            ipif = ipaddress.IPv4Interface(addr)
+        except Exception:
+            print(f"[WARN] Dirección inválida en {iface}: {addr}, la salto.")
+            continue
 
-        if tipo == "e":
-            externals[iface] = str(ip)
-        else:
-            internals[iface] = str(ip)
+        print(f"\nInterfaz detectada: {iface}")
+        print(f"  Dirección IP: {ipif}")
+        # Pregunta con valor por defecto: si es privada, sugerir i, si no sugerir e
+        suggested = "i" if ipif.ip.is_private else "e"
+        tipo = input(f"¿Esta interfaz es interna (i) o externa (e)? [{suggested}]: ").strip().lower()
+        if tipo == "":
+            tipo = suggested
+        if tipo not in ("i", "e", "internal", "external"):
+            tipo = suggested
+
+        t = "internal" if tipo.startswith("i") else "external"
+        interfaces[iface] = {"ip": str(ipif), "type": t}
 
     print("\nResumen de selección:")
-    print(f"  Internas: {list(internals.keys())}")
-    print(f"  Externas: {list(externals.keys())}")
+    intern = [k for k,v in interfaces.items() if v["type"]=="internal"]
+    extern = [k for k,v in interfaces.items() if v["type"]=="external"]
+    print(f"  Internas: {intern}")
+    print(f"  Externas: {extern}")
 
-    return internals, externals
-
+    return interfaces
 
 def build_netplan_yaml(existing_yaml, interfaces):
     """
-    Modifica o crea el netplan existente, asignando:
-      - dhcp4: yes en interfaces externas
-      - dhcp4: no + address + nameservers + optional routes en internas
+    existing_yaml: dict (parsed YAML) o {}
+    interfaces: dict como devuelve detect_interfaces()
+    Devuelve YAML dict modificado.
     """
-    if "network" not in existing_yaml:
-        existing_yaml["network"] = {"version": 2, "renderer": "networkd", "ethernets": {}}
-    if "ethernets" not in existing_yaml["network"]:
-        existing_yaml["network"]["ethernets"] = {}
+    if not isinstance(existing_yaml, dict):
+        existing_yaml = {}
 
+    # Asegurar estructura base
+    net = existing_yaml.get("network", {})
+    # mantener version/renderer si existen, si no poner defaults
+    version = net.get("version", 2)
+    renderer = net.get("renderer", "networkd")
+    ethernets = net.get("ethernets", {}) or {}
+
+    # Actualizar/añadir interfaces según tipo
     for iface, data in interfaces.items():
         ip = data.get("ip")
-        tipo = data.get("type")  # 'internal' o 'external'
-        iface_data = existing_yaml["network"]["ethernets"].get(iface, {})
+        tipo = data.get("type")
+        if not ip or not tipo:
+            continue
+        iface_data = ethernets.get(iface, {})
 
         if tipo == "external":
+            # externa: DHCP
             iface_data["dhcp4"] = True
-            iface_data["optional"] = True
+            # conservar optional si ya existe, si no poner true para evitar bloqueos al boot
+            iface_data["optional"] = iface_data.get("optional", True)
+            # eliminar addresses/routes/nameservers si había estático y ahora dhcp
+            iface_data.pop("addresses", None)
+            iface_data.pop("routes", None)
+            # No tocaremos nameservers globales ya existentes
         else:
+            # interna: estática
             iface_data["dhcp4"] = False
             iface_data["addresses"] = [ip]
-            iface_data["nameservers"] = {"addresses": ["8.8.8.8", "1.1.1.1"]}
-            # Si quieres gateway opcional interno:
-            iface_data["routes"] = [{
-                "to": "default",
-                "via": str(ipaddress.IPv4Interface(ip).ip)
-            }]
+            # Si no tiene nameservers definidos, añadir unos por defecto (puedes cambiar)
+            if "nameservers" not in iface_data:
+                iface_data["nameservers"] = {"addresses": ["8.8.8.8", "1.1.1.1"]}
+            # No forzamos gateway externo; si quieres añadir un route específico coméntalo
+            # Se mantiene cualquier configuración previa (routes, mtu, etc.)
+            iface_data.pop("optional", None)  # normalmente internas no optional
+        ethernets[iface] = iface_data
 
-        existing_yaml["network"]["ethernets"][iface] = iface_data
+    # Reconstruir estructura
+    new_net = {
+        "version": version,
+        "renderer": renderer,
+        "ethernets": ethernets
+    }
+    return {"network": new_net}
 
-    return existing_yaml
-
-
-
-def write_netplan_file(yaml_text):
+def write_netplan_file(interfaces):
     """
-    Modifica el archivo netplan existente sin perder otras configuraciones.
+    Localiza primer archivo en /etc/netplan/ y lo modifica.
+    Si no existe, crea NETPLAN_DEFAULT_PATH.
     """
-    # Buscar un archivo netplan existente en /etc/netplan
-    netplan_files = [f for f in os.listdir("/etc/netplan") if f.endswith(".yaml") or f.endswith(".yml")]
-    if not netplan_files:
-        print("[ERROR] No se encontró ningún archivo YAML en /etc/netplan/")
-        return
+    # localizar archivo a modificar
+    netplan_files = [f for f in os.listdir("/etc/netplan") if f.endswith(".yaml") or f.endswith(".yml")] if os.path.isdir("/etc/netplan") else []
+    if netplan_files:
+        path = os.path.join("/etc/netplan", netplan_files[0])
+    else:
+        # crear directorio si no existe
+        os.makedirs(os.path.dirname(NETPLAN_DEFAULT_PATH), exist_ok=True)
+        path = NETPLAN_DEFAULT_PATH
 
-    path = f"/etc/netplan/{netplan_files[0]}"
-    backup_file(path)
-    print(f"[INFO] Modificando {path}")
-
-    # Leer YAML existente
-    with open(path, "r") as f:
+    # leer existente
+    existing_yaml = {}
+    if os.path.exists(path):
         try:
-            existing_yaml = yaml.safe_load(f) or {}
-        except yaml.YAMLError:
-            print("[WARN] No se pudo parsear YAML existente, se sobrescribirá.")
+            with open(path, "r") as f:
+                existing_yaml = yaml.safe_load(f) or {}
+        except Exception as e:
+            print(f"[WARN] No se pudo parsear {path}: {e}. Se trabajará sobre contenido vacío.")
             existing_yaml = {}
 
-    # Modificar estructura con las IPs actuales
-    modified_yaml = build_netplan_yaml(existing_yaml, interfaces)
+    # backup
+    backup_file(path)
+    print(f"[INFO] Modificando netplan: {path}")
 
-    # Escribir YAML actualizado
-    with open(path, "w") as f:
-        yaml.dump(modified_yaml, f, default_flow_style=False, sort_keys=False)
-    print(f"[INFO] Netplan actualizado con interfaces detectadas -> {path}")
+    # construir nuevo YAML dict
+    modified = build_netplan_yaml(existing_yaml, interfaces)
+
+    # escribir manteniendo estilo legible
+    try:
+        with open(path, "w") as f:
+            yaml.safe_dump(modified, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    except Exception as e:
+        print(f"[ERROR] No se pudo escribir {path}: {e}")
+        return False
+
+    print(f"[INFO] Netplan actualizado -> {path}")
+    return True
 
 def enable_ip_forwarding():
     backup_file(SYSCTL_CONF)
-    with open(SYSCTL_CONF, "r") as f:
-        lines = f.readlines()
+    # leer si existe, si no crear
+    lines = []
+    if os.path.exists(SYSCTL_CONF):
+        with open(SYSCTL_CONF, "r") as f:
+            lines = f.readlines()
     new_lines = []
     found = False
     for line in lines:
@@ -142,21 +189,36 @@ def enable_ip_forwarding():
         new_lines.append("\n# Enabled by conf-serv.py\nnet.ipv4.ip_forward=1\n")
     with open(SYSCTL_CONF, "w") as f:
         f.writelines(new_lines)
-    run("sysctl -p", check=False)
+    try:
+        run("sysctl -p", check=True)
+    except Exception:
+        print("[WARN] sysctl -p falló o devolvió error. Revisa /etc/sysctl.conf")
     print("[INFO] IP forwarding habilitado")
 
-def build_iptables_rules(internals, externals):
-    lines = ["*nat", ":PREROUTING ACCEPT [0:0]", ":INPUT ACCEPT [0:0]",
-             ":OUTPUT ACCEPT [0:0]", ":POSTROUTING ACCEPT [0:0]"]
+def build_iptables_rules(interfaces):
+    """
+    interfaces: dict detectado. Construye reglas usando todas las internas->externas.
+    """
+    internals = [k for k,v in interfaces.items() if v["type"]=="internal"]
+    externals = [k for k,v in interfaces.items() if v["type"]=="external"]
+
+    lines = ["*nat",
+             ":PREROUTING ACCEPT [0:0]",
+             ":INPUT ACCEPT [0:0]",
+             ":OUTPUT ACCEPT [0:0]",
+             ":POSTROUTING ACCEPT [0:0]"]
+    # Añadir MASQUERADE por cada interfaz externa
     for ext in externals:
-        for intf in internals:
-            lines.append(f"-A POSTROUTING -o {ext} -j MASQUERADE")
+        # Masquerade todo lo que salga por ext
+        lines.append(f"-A POSTROUTING -o {ext} -j MASQUERADE")
     lines.append("COMMIT")
     lines.append("*filter")
     lines.append(":INPUT ACCEPT [0:0]")
     lines.append(":FORWARD ACCEPT [0:0]")
     lines.append(":OUTPUT ACCEPT [0:0]")
+    # Permitir conexiones establecidas
     lines.append("-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
+    # Permitir tráfico de internas hacia externas
     for intf in internals:
         for ext in externals:
             lines.append(f"-A FORWARD -i {intf} -o {ext} -j ACCEPT")
@@ -172,52 +234,79 @@ def save_iptables_rules(rules_text):
         f.write(rules_text)
     try:
         run(f"iptables-restore < {IPTABLES_RULES_V4}", check=True)
-    except:
-        print("[WARN] iptables-restore falló, revisa las reglas manualmente")
+    except Exception:
+        print("[WARN] iptables-restore falló; intenta aplicar manualmente o revisa iptables.")
     print(f"[INFO] Reglas iptables guardadas en {IPTABLES_RULES_V4}")
 
 def try_enable_persistent():
+    # Solo para Debian/Ubuntu: intentar instalar iptables-persistent
     try:
         run("which apt >/dev/null 2>&1", check=True)
+        print("[INFO] Intentando instalar iptables-persistent (si falta)...")
         run("DEBIAN_FRONTEND=noninteractive apt-get update -y", check=False)
         run("DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent", check=False)
         run("systemctl enable netfilter-persistent.service", check=False)
         run("systemctl restart netfilter-persistent.service", check=False)
-    except:
-        print("[WARN] No se pudo habilitar iptables-persistent automáticamente")
+    except Exception:
+        print("[WARN] No se pudo habilitar iptables-persistent automáticamente.")
 
 def apply_netplan():
     try:
         run("netplan apply", check=True)
         print("[INFO] Netplan aplicado")
-    except:
-        print("[WARN] netplan apply falló, revisa manualmente")
+    except Exception:
+        print("[WARN] netplan apply falló. Revisa el YAML y ejecuta 'sudo netplan apply' manualmente.")
+
+def validate_interfaces(interfaces):
+    intern = [k for k,v in interfaces.items() if v["type"]=="internal"]
+    extern = [k for k,v in interfaces.items() if v["type"]=="external"]
+    if not intern:
+        print("[ERROR] No hay interfaces marcadas como internas. Se necesita al menos una.")
+        return False
+    if not extern:
+        print("[ERROR] No hay interfaces marcadas como externas. Se necesita al menos una.")
+        return False
+    return True
 
 def main():
     if os.geteuid() != 0:
         print("Ejecuta este script con sudo/root")
+        sys.exit(1)
+
+    print("=== Configuración NAT automática Ubuntu 22.04 ===")
+    interfaces = detect_interfaces()
+    if not interfaces:
+        print("[ERROR] No hay interfaces detectadas. Abortando.")
         return
-    print("=== Configuración NAT automática Ubuntu -serv ===")
-    internals, externals = detect_interfaces()
-    print(f"[INFO] Internas detectadas: {list(internals.keys())}")
-    print(f"[INFO] Externas detectadas: {list(externals.keys())}")
-    if not externals:
-        print("[ERROR] No se detectaron interfaces externas. abortando.")
+
+    if not validate_interfaces(interfaces):
+        print("[ERROR] Validación de interfaces falló. Abortando.")
         return
-    # Construir netplan
-    all_ifaces = {**internals, **externals}
-    yaml_text = build_netplan_yaml(all_ifaces)
-    write_netplan_file(yaml_text)
+
+    # Modificar netplan existente (backup incluido)
+    ok = write_netplan_file(interfaces)
+    if not ok:
+        print("[ERROR] Error al escribir netplan. Abortando antes de tocar iptables.")
+        return
+
     # Habilitar IP forwarding
     enable_ip_forwarding()
-    # Generar iptables
-    rules_text = build_iptables_rules(list(internals.keys()), list(externals.keys()))
+
+    # Generar y guardar reglas iptables
+    rules_text = build_iptables_rules(interfaces)
     save_iptables_rules(rules_text)
-    # Intentar persistencia
+
+    # Intentar persistencia (iptables-persistent)
     try_enable_persistent()
+
     # Aplicar netplan
     apply_netplan()
-    print("[FIN] Configuración NAT completada")
+
+    print("\n[FIN] Configuración NAT completada.")
+    print("Revisa los archivos:")
+    print(f" - Netplan modificado en /etc/netplan/")
+    print(f" - Backups en {BACKUP_DIR}")
+    print(f" - Reglas iptables en {IPTABLES_RULES_V4}")
 
 if __name__ == "__main__":
     main()
