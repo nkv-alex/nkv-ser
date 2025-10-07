@@ -32,7 +32,7 @@ def backup_file(path):
 
 def detect_interfaces():
     """Detecta interfaces con IPs y clasifica internas/externas"""
-    result = run("ip -o -4 addr show | awk '{print $2,$4}'", check=True)
+    result = run("ip -o -4 addr show | awk '{print $2,$4}'|grep -v 'lo' |grep -v 'docker'", check=True)
     internals = {}
     externals = {}
     for line in result.stdout.strip().splitlines():
@@ -130,12 +130,12 @@ def main():
     if os.geteuid() != 0:
         print("Ejecuta este script con sudo/root")
         return
-    print("=== Configuración NAT automática Ubuntu 22.04 ===")
+    print("=== Configuración NAT automática Ubuntu -serv ===")
     internals, externals = detect_interfaces()
     print(f"[INFO] Internas detectadas: {list(internals.keys())}")
     print(f"[INFO] Externas detectadas: {list(externals.keys())}")
     if not externals:
-        print("[ERROR] No se detectaron interfaces externas. Salgo.")
+        print("[ERROR] No se detectaron interfaces externas. abortando.")
         return
     # Construir netplan
     all_ifaces = {**internals, **externals}
