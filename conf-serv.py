@@ -536,14 +536,26 @@ subnet {red.network_address} netmask {red.netmask} {{
         print("[ERROR] DHCP no pudo iniciarse. Revisa con: journalctl -u isc-dhcp-server")
 
 def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
+    """
+    Descubre hosts en todas las interfaces internas definidas globalmente y
+    envía un payload UDP.
+
+    Args:
+        payload (str): Mensaje que se enviará a los hosts descubiertos.
+        port (int): Puerto UDP de comunicación.
+        timeout (float): Tiempo máximo de escucha por interfaz (s).
+        send (bool): Si True, envía el payload tras descubrir los hosts.
+    """
     import socket, struct, fcntl, time, uuid, json, os
 
     DISCOVER_MESSAGE_PREFIX = "DISCOVER_REQUEST"
     RESPONSE_PREFIX = "DISCOVER_RESPONSE"
     HOSTS_FILE = "hosts.json"
 
+    # Se asume que existe un dict global 'interfaces' definido desde otra función
     global interfaces
     internals = [iface for iface, v in interfaces.items() if v["type"] == "internal"]
+    
 
     def get_broadcast(iface):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -581,31 +593,19 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
         print(f"[discover:{iface}] Broadcast enviado, esperando {timeout}s...")
 
         start_time = time.time()
-        while True:
+        respuestas_recibidas = 0  # contador de respuestas
+        while respuestas_recibidas < 2:
             try:
                 data, addr = sock.recvfrom(1024)
                 text = data.decode(errors="ignore")
                 ip, _ = addr
-
-                if text.startswith(DISCOVER_MESSAGE_PREFIX):
-                    print(f"[discover:{iface}] respondido desde {ip}")
-
-                    # Escucha el siguiente mensaje que llegue
-                    try:
-                        next_data, next_addr = sock.recvfrom(1024)
-                        next_text = next_data.decode(errors="ignore")
-                        next_ip, _ = next_addr
-                        print(f"[discover:{iface}] siguiente mensaje recibido de {next_ip}: {next_text}")
-                    except socket.timeout:
-                        print(f"[discover:{iface}] no llegó siguiente mensaje después de DISCOVER_MSG")
-
-                elif text.startswith(RESPONSE_PREFIX):
+                if text.startswith(RESPONSE_PREFIX):
                     parts = text.split(":", 2)
                     hostname = parts[1] if len(parts) > 1 else ip
                     nodeid = parts[2] if len(parts) > 2 else ""
                     discovered_total[ip] = {"hostname": hostname.strip(), "nodeid": nodeid.strip()}
                     print(f"[discover:{iface}] respuesta de {ip} -> {hostname}")
-
+                    respuestas_recibidas += 1  # incrementa contador
             except socket.timeout:
                 break
             if time.time() - start_time > timeout:
@@ -631,7 +631,6 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
                 print(f"[send] fallo al enviar a {ip}: {e}")
 
     return discovered_total
-
 
 def main():
     O = int(input("Seleccione una opción:\n1. Configurar NAT\n2. Configurar SSH\n3. Configurar DHCP\n4. provar conexion\nOpción: "))
