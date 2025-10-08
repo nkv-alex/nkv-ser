@@ -23,6 +23,7 @@ NETPLAN_DEFAULT_PATH = "/etc/netplan/01-nat.yaml"
 BACKUP_DIR = "/etc/netplan/backups_nat_helper"
 IPTABLES_RULES_V4 = "/etc/iptables/rules.v4"
 SYSCTL_CONF = "/etc/sysctl.conf"
+JSON_FILE = "interfaces.json"
 interfaces = {}  
 
 
@@ -38,40 +39,61 @@ def backup_file(path):
         shutil.copy2(path, dest)
 
 def detect_interfaces():
-    """Detecta interfaces con IPs y pregunta si son internas o externas.
-    Guarda el resultado en la variable global 'interfaces'.
+    """Detecta interfaces con IPs, usa las del JSON si ya existen,
+    pregunta solo por las nuevas y actualiza el archivo.
     """
-    global interfaces  # Indicamos que vamos a usar/modificar la variable global
+    global interfaces
 
+    # --- 1. Cargar JSON existente ---
+    if os.path.exists(JSON_FILE):
+        try:
+            with open(JSON_FILE, "r") as f:
+                interfaces = json.load(f)
+            print(f"[INFO] Configuración cargada desde {JSON_FILE}")
+        except Exception as e:
+            print(f"[WARN] No se pudo leer {JSON_FILE}: {e}")
+            interfaces = {}
+    else:
+        interfaces = {}
+
+    # --- 2. Detectar interfaces del sistema ---
     try:
-        # Filtra interfaces que no sean lo, docker, veth, br-, virbr, etc.
         res = run(
             "ip -o -4 addr show | awk '{print $2,$4}' | "
             "grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
-            check=False
+            capture_output=True, text=True, check=False
         )
     except Exception as e:
-        print(f"[ERROR] Al ejecutar ip: {e}")
+        print(f"[ERROR] Al ejecutar 'ip': {e}")
         return {}
 
     out = res.stdout.strip()
     if not out:
         print("[ERROR] No se encontraron interfaces con IPv4 asignada.")
-        return {}
+        return interfaces
 
-    interfaces.clear()  # Limpiamos cualquier contenido previo
     print("\n=== Detección de interfaces ===")
+
+    # --- 3. Procesar interfaces detectadas ---
+    updated = False
     for line in out.splitlines():
         parts = line.split()
         if len(parts) < 2:
             continue
+
         iface, addr = parts[0], parts[1]
         try:
             ipif = ipaddress.IPv4Interface(addr)
         except Exception:
-            print(f"[WARN] Dirección inválida en {iface}: {addr}, la salto.")
+            print(f"[WARN] Dirección inválida en {iface}: {addr}, se omite.")
             continue
 
+        # Si ya existe y coincide, no preguntar
+        if iface in interfaces and interfaces[iface].get("ip") == str(ipif):
+            print(f"[OK] {iface} sin cambios → tipo: {interfaces[iface]['type']}")
+            continue
+
+        # Preguntar solo si es nueva o cambió
         print(f"\nInterfaz detectada: {iface}")
         print(f"  Dirección IP: {ipif}")
         suggested = "i" if ipif.ip.is_private else "e"
@@ -83,14 +105,28 @@ def detect_interfaces():
 
         t = "internal" if tipo.startswith("i") else "external"
         interfaces[iface] = {"ip": str(ipif), "type": t}
+        updated = True
 
-    print("\nResumen de selección:")
+    # --- 4. Guardar cambios si hubo actualizaciones ---
+    if updated:
+        try:
+            with open(JSON_FILE, "w") as f:
+                json.dump(interfaces, f, indent=4)
+            print(f"[INFO] Configuración actualizada en {JSON_FILE}")
+        except Exception as e:
+            print(f"[ERROR] No se pudo guardar {JSON_FILE}: {e}")
+    else:
+        print("[INFO] No hubo cambios en las interfaces.")
+
+    # --- 5. Mostrar resumen ---
     intern = [k for k, v in interfaces.items() if v["type"] == "internal"]
     extern = [k for k, v in interfaces.items() if v["type"] == "external"]
+    print("\nResumen final:")
     print(f"  Internas: {intern}")
     print(f"  Externas: {extern}")
 
     return interfaces
+
 
 def build_netplan_yaml(existing_yaml, interfaces):
     """
