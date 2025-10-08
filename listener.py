@@ -54,11 +54,7 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
             _last_addr = addr
             _last_sock = sock
 
-            # Si es un mensaje DISCOVER
-            if text.startswith(DISCOVER_PREFIX):
-                respuesta("ok")
-                print(f"[listener] recibido DISCOVER de {ip}, respondido.")
-                continue
+            
 
             # Procesar payload dinámico con match-case
             match text:
