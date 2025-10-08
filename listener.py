@@ -6,6 +6,9 @@ Uso seguro: solo en redes/hosts bajo tu control
 import socket
 import platform
 import uuid
+import subprocess
+import yaml
+import os
 
 BROADCAST_PORT = 50000
 BUFFER_SIZE = 1024
@@ -31,6 +34,56 @@ def respuesta(mensaje: str):
     full_msg = f"{RESPONSE_PREFIX}:{mensaje}:{platform.node()}:{uuid.getnode()}"
     _last_sock.sendto(full_msg.encode(), _last_addr)
     print(f"[listener] Respuesta enviada a {ip}:{port} → {mensaje}")
+
+def forzar_dhcp():
+    # Detectar interfaces activas (excluyendo las virtuales)
+    res = subprocess.run(
+        "ip -o -4 addr show | awk '{print $2}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
+        shell=True, capture_output=True, text=True
+    )
+    interfaces = [i.strip() for i in res.stdout.splitlines() if i.strip()]
+    if not interfaces:
+        print("[WARN] No se detectaron interfaces activas.")
+        return
+
+    netplan_dir = "/etc/netplan"
+    yaml_files = [os.path.join(netplan_dir, f) for f in os.listdir(netplan_dir) if f.endswith(".yaml")]
+    if not yaml_files:
+        print("[WARN] No hay archivos YAML de Netplan.")
+        return
+
+    for file_path in yaml_files:
+        print(f"[INFO] Reescribiendo {file_path} ...")
+
+        data = {
+            "network": {
+                "version": 2,
+                "renderer": "NetworkManager",
+                "ethernets": {}
+            }
+        }
+
+        for iface in interfaces:
+            data["network"]["ethernets"][iface] = {
+                "dhcp4": True,
+                "dhcp4-overrides": {
+                    "use-routes": True,
+                    "use-dns": True
+                }
+            }
+
+        # Escribir directamente (sobrescribir)
+        with open(file_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False)
+
+    # Aplicar cambios
+    subprocess.run("netplan apply", shell=True)
+    print(f"[OK] Interfaces {interfaces} configuradas por DHCP (servidor 192.168.1.10)")
+
+
+
+
+
 
 def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
     """
@@ -71,6 +124,12 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
                 case _:
                     print(f"[listener] mensaje desconocido de {ip}: '{text}'")
                     respuesta("none")
+
+
+
+
+
+
 
         except KeyboardInterrupt:
             print("[listener] detenido por usuario.")
