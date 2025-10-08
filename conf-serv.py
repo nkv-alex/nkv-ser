@@ -642,8 +642,7 @@ def main():
             send_to_hosts("config_dhcp")
         case 4:
             detect_interfaces()
-            print(interfaces)
-            send_to_hosts("a1h1")
+            send_to_hosts("test")
 
 
 
