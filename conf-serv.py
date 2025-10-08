@@ -11,12 +11,20 @@ import yaml
 import sys
 from pathlib import Path
 import re
-
+import socket
+import struct  
+import fcntl
+import json
+import time
+import uuid
+import argparse
 
 NETPLAN_DEFAULT_PATH = "/etc/netplan/01-nat.yaml"
 BACKUP_DIR = "/etc/netplan/backups_nat_helper"
 IPTABLES_RULES_V4 = "/etc/iptables/rules.v4"
 SYSCTL_CONF = "/etc/sysctl.conf"
+interfaces = {}  # dict global para interfaces detectadas
+
 
 def run(cmd, check=True):
     return subprocess.run(cmd, shell=True, check=check, capture_output=True, text=True)
@@ -31,8 +39,10 @@ def backup_file(path):
 
 def detect_interfaces():
     """Detecta interfaces con IPs y pregunta si son internas o externas.
-    Devuelve dict: { iface: {"ip": "192.168.1.1/24", "type":"internal"|"external"} }
+    Guarda el resultado en la variable global 'interfaces'.
     """
+    global interfaces  # Indicamos que vamos a usar/modificar la variable global
+
     try:
         # Filtra interfaces que no sean lo, docker, veth, br-, virbr, etc.
         res = run(
@@ -49,7 +59,7 @@ def detect_interfaces():
         print("[ERROR] No se encontraron interfaces con IPv4 asignada.")
         return {}
 
-    interfaces = {}
+    interfaces.clear()  # Limpiamos cualquier contenido previo
     print("\n=== Detección de interfaces ===")
     for line in out.splitlines():
         parts = line.split()
@@ -64,7 +74,6 @@ def detect_interfaces():
 
         print(f"\nInterfaz detectada: {iface}")
         print(f"  Dirección IP: {ipif}")
-        # Pregunta con valor por defecto: si es privada, sugerir i, si no sugerir e
         suggested = "i" if ipif.ip.is_private else "e"
         tipo = input(f"¿Esta interfaz es interna (i) o externa (e)? [{suggested}]: ").strip().lower()
         if tipo == "":
@@ -82,7 +91,6 @@ def detect_interfaces():
     print(f"  Externas: {extern}")
 
     return interfaces
-
 
 def build_netplan_yaml(existing_yaml, interfaces):
     """
@@ -490,10 +498,102 @@ subnet {red.network_address} netmask {red.netmask} {{
     else:
         print("[ERROR] DHCP no pudo iniciarse. Revisa con: journalctl -u isc-dhcp-server")
 
+def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
+    """
+    Descubre hosts en todas las interfaces internas definidas globalmente y
+    envía un payload UDP.
 
+    Args:
+        payload (str): Mensaje que se enviará a los hosts descubiertos.
+        port (int): Puerto UDP de comunicación.
+        timeout (float): Tiempo máximo de escucha por interfaz (s).
+        send (bool): Si True, envía el payload tras descubrir los hosts.
+    """
+    import socket, struct, fcntl, time, uuid, json, os
+
+    DISCOVER_MESSAGE_PREFIX = "DISCOVER_REQUEST"
+    RESPONSE_PREFIX = "DISCOVER_RESPONSE"
+    HOSTS_FILE = "hosts.json"
+
+    # Se asume que existe un dict global 'interfaces' definido desde otra función
+    global interfaces
+    internals = [iface for iface, v in interfaces.items() if v["type"] == "internal"]
+
+    def get_broadcast(iface):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            return socket.inet_ntoa(fcntl.ioctl(
+                s.fileno(),
+                0x8919,  # SIOCGIFBRDADDR
+                struct.pack('256s', iface.encode('utf-8')[:15])
+            )[20:24])
+        except Exception as e:
+            print(f"[net] Error obteniendo broadcast de {iface}: {e}")
+            return "255.255.255.255"
+
+    def save_hosts(discovered):
+        try:
+            with open(HOSTS_FILE, "w") as f:
+                json.dump(discovered, f, indent=2)
+            print(f"[store] {len(discovered)} hosts guardados en {HOSTS_FILE}")
+        except Exception as e:
+            print(f"[store] Error al guardar hosts: {e}")
+
+    discovered_total = {}
+
+    for iface in internals:
+        broadcast_ip = get_broadcast(iface)
+        print(f"[discover:{iface}] usando broadcast {broadcast_ip}")
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(timeout)
+
+        token = str(uuid.uuid4())[:8]
+        discover_msg = f"{DISCOVER_MESSAGE_PREFIX}:{token}"
+        sock.sendto(discover_msg.encode(), (broadcast_ip, port))
+        print(f"[discover:{iface}] Broadcast enviado, esperando {timeout}s...")
+
+        start_time = time.time()
+        while True:
+            try:
+                data, addr = sock.recvfrom(1024)
+                text = data.decode(errors="ignore")
+                ip, _ = addr
+                if text.startswith(RESPONSE_PREFIX):
+                    parts = text.split(":", 2)
+                    hostname = parts[1] if len(parts) > 1 else ip
+                    nodeid = parts[2] if len(parts) > 2 else ""
+                    discovered_total[ip] = {"hostname": hostname.strip(), "nodeid": nodeid.strip()}
+                    print(f"[discover:{iface}] respuesta de {ip} -> {hostname}")
+            except socket.timeout:
+                break
+            if time.time() - start_time > timeout:
+                break
+
+    if not discovered_total:
+        print("[discover] No se detectaron listeners en interfaces internas.")
+        return {}
+
+    print(f"[discover] Total de {len(discovered_total)} hosts encontrados:")
+    for ip, info in discovered_total.items():
+        print(f"  - {ip} ({info.get('hostname')})")
+
+    save_hosts(discovered_total)
+
+    if send:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        for ip in discovered_total.keys():
+            try:
+                sock.sendto(payload.encode(), (ip, port))
+                print(f"[send] payload enviado a {ip}")
+            except Exception as e:
+                print(f"[send] fallo al enviar a {ip}: {e}")
+
+    return discovered_total
 
 def main():
-    O = int(input("Seleccione una opción:\n1. Configurar NAT\n2. Configurar SSH\nOpción: "))
+    O = int(input("Seleccione una opción:\n1. Configurar NAT\n2. Configurar SSH\n3. Configurar DHCP\n4. provar conexion\nOpción: "))
     match O:
         case 1:
             nat_configuration()
@@ -501,6 +601,10 @@ def main():
             configure_ssh()
         case 3:
             configure_dhcp()
+            send_to_hosts("config_dhcp")
+        case 4:
+            send_to_hosts("a1h1")
+
 
 
 
