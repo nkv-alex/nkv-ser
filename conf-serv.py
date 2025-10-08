@@ -593,8 +593,7 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
         print(f"[discover:{iface}] Broadcast enviado, esperando {timeout}s...")
 
         start_time = time.time()
-        respuestas_recibidas = 0  # contador de respuestas
-        while respuestas_recibidas < 2:
+        while True:
             try:
                 data, addr = sock.recvfrom(1024)
                 text = data.decode(errors="ignore")
@@ -605,7 +604,6 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
                     nodeid = parts[2] if len(parts) > 2 else ""
                     discovered_total[ip] = {"hostname": hostname.strip(), "nodeid": nodeid.strip()}
                     print(f"[discover:{iface}] respuesta de {ip} -> {hostname}")
-                    respuestas_recibidas += 1  # incrementa contador
             except socket.timeout:
                 break
             if time.time() - start_time > timeout:
@@ -623,12 +621,22 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
 
     if send:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(2.0)  # Tiempo máximo de espera por respuesta
         for ip in discovered_total.keys():
             try:
                 sock.sendto(payload.encode(), (ip, port))
                 print(f"[send] payload enviado a {ip}")
+                
+                # Escuchar la respuesta
+                try:
+                    data, addr = sock.recvfrom(1024)  # buffer de 1024 bytes
+                    print(f"[recv] respuesta de {addr[0]}: {data.decode(errors='ignore')}")
+                except socket.timeout:
+                    print(f"[recv] no hubo respuesta de {ip}")
+                
             except Exception as e:
                 print(f"[send] fallo al enviar a {ip}: {e}")
+
 
     return discovered_total
 
