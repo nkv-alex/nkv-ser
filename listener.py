@@ -64,9 +64,7 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
                 case "config_dhcp":
                     print(f"[listener] Acción SALMON ejecutada por {ip}")
                     respuesta("hecho")
-                case _:
-                    print(f"[listener] mensaje desconocido de {ip}: '{text}'")
-                    respuesta("unknown")
+                
 
         except KeyboardInterrupt:
             print("[listener] detenido por usuario.")
