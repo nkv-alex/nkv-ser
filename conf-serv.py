@@ -590,15 +590,21 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
                 if text.startswith(DISCOVER_MESSAGE_PREFIX):
                     print(f"[discover:{iface}] respondido desde {ip}")
 
+                    # Escucha el siguiente mensaje que llegue
+                    try:
+                        next_data, next_addr = sock.recvfrom(1024)
+                        next_text = next_data.decode(errors="ignore")
+                        next_ip, _ = next_addr
+                        print(f"[discover:{iface}] siguiente mensaje recibido de {next_ip}: {next_text}")
+                    except socket.timeout:
+                        print(f"[discover:{iface}] no llegó siguiente mensaje después de DISCOVER_MSG")
+
                 elif text.startswith(RESPONSE_PREFIX):
                     parts = text.split(":", 2)
                     hostname = parts[1] if len(parts) > 1 else ip
                     nodeid = parts[2] if len(parts) > 2 else ""
                     discovered_total[ip] = {"hostname": hostname.strip(), "nodeid": nodeid.strip()}
                     print(f"[discover:{iface}] respuesta de {ip} -> {hostname}")
-
-                # Siempre mostrar el siguiente mensaje recibido
-                print(f"[recv:{iface}] mensaje recibido: {text}")
 
             except socket.timeout:
                 break
