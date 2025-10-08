@@ -518,6 +518,7 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
     # Se asume que existe un dict global 'interfaces' definido desde otra función
     global interfaces
     internals = [iface for iface, v in interfaces.items() if v["type"] == "internal"]
+    
 
     def get_broadcast(iface):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -603,6 +604,7 @@ def main():
             configure_dhcp()
             send_to_hosts("config_dhcp")
         case 4:
+            print(interfaces)
             send_to_hosts("a1h1")
 
 
