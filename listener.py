@@ -58,7 +58,7 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
 
             # Procesar payload dinámico con match-case
             match text:
-                case "a1h1":
+                case "test":
                     print(f"[listener] Acción 1 ejecutada por {ip}")
                     respuesta("te escucho")
                 case "config_dhcp":
