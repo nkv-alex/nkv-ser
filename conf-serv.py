@@ -23,7 +23,7 @@ NETPLAN_DEFAULT_PATH = "/etc/netplan/01-nat.yaml"
 BACKUP_DIR = "/etc/netplan/backups_nat_helper"
 IPTABLES_RULES_V4 = "/etc/iptables/rules.v4"
 SYSCTL_CONF = "/etc/sysctl.conf"
-interfaces = {}  # dict global para interfaces detectadas
+interfaces = {}  
 
 
 def run(cmd, check=True):
@@ -604,6 +604,7 @@ def main():
             configure_dhcp()
             send_to_hosts("config_dhcp")
         case 4:
+            detect_interfaces()
             print(interfaces)
             send_to_hosts("a1h1")
 
