@@ -58,15 +58,16 @@ def detect_interfaces():
 
     # --- 2. Detectar interfaces del sistema ---
     try:
-        res = run(
-            "ip -o -4 addr show | awk '{print $2,$4}' | "
-            "grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
-            capture_output=True, text=True, check=False
+        res = subprocess.run(
+            "ip -o -4 addr show | awk '{print $2,$4}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
+            capture_output=True,
+            text=True,
+            check=False,
+            shell=True  # <- importante
         )
     except Exception as e:
         print(f"[ERROR] Al ejecutar 'ip': {e}")
         return {}
-
     out = res.stdout.strip()
     if not out:
         print("[ERROR] No se encontraron interfaces con IPv4 asignada.")
