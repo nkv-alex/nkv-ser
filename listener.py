@@ -36,51 +36,59 @@ def respuesta(mensaje: str):
     print(f"[listener] Respuesta enviada a {ip}:{port} → {mensaje}")
 
 def forzar_dhcp():
-    # Detectar interfaces activas (excluyendo las virtuales)
-    res = subprocess.run(
-        "ip -o -4 addr show | awk '{print $2}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
-        shell=True, capture_output=True, text=True
-    )
-    interfaces = [i.strip() for i in res.stdout.splitlines() if i.strip()]
-    if not interfaces:
-        print("[WARN] No se detectaron interfaces activas.")
-        return
+    try:
+        res = subprocess.run(
+            "ip -o -4 addr show | awk '{print $2}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
+            shell=True, capture_output=True, text=True, check=False
+        )
+        interfaces = [i.strip() for i in res.stdout.splitlines() if i.strip()]
+        if not interfaces:
+            print("[WARN] No se detectaron interfaces activas.")
+            return
 
-    netplan_dir = "/etc/netplan"
-    yaml_files = [os.path.join(netplan_dir, f) for f in os.listdir(netplan_dir) if f.endswith(".yaml")]
-    if not yaml_files:
-        print("[WARN] No hay archivos YAML de Netplan.")
-        return
+        netplan_dir = "/etc/netplan"
+        if not os.path.isdir(netplan_dir):
+            print(f"[ERROR] No existe {netplan_dir}")
+            return
 
-    for file_path in yaml_files:
-        print(f"[INFO] Reescribiendo {file_path} ...")
+        yaml_files = [os.path.join(netplan_dir, f) for f in os.listdir(netplan_dir) if f.endswith(".yaml")]
+        if not yaml_files:
+            print("[WARN] No hay archivos YAML de Netplan.")
+            return
 
-        data = {
-            "network": {
-                "version": 2,
-                "renderer": "NetworkManager",
-                "ethernets": {}
-            }
-        }
+        for file_path in yaml_files:
+            print(f"[INFO] Reescribiendo {file_path} ...")
 
-        for iface in interfaces:
-            data["network"]["ethernets"][iface] = {
-                "dhcp4": True,
-                "dhcp4-overrides": {
-                    "use-routes": True,
-                    "use-dns": True
+            data = {
+                "network": {
+                    "version": 2,
+                    "renderer": "NetworkManager",
+                    "ethernets": {}
                 }
             }
 
-        # Escribir directamente (sobrescribir)
-        with open(file_path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
+            for iface in interfaces:
+                data["network"]["ethernets"][iface] = {
+                    "dhcp4": True,
+                    "dhcp4-overrides": {
+                        "use-routes": True,
+                        "use-dns": True
+                    }
+                }
 
-    # Aplicar cambios
-    subprocess.run("netplan apply", shell=True)
-    print(f"[OK] Interfaces {interfaces} configuradas por DHCP (servidor 192.168.1.10)")
+            # Forzar escritura con sudo
+            tmp_file = f"/tmp/{os.path.basename(file_path)}"
+            with open(tmp_file, "w") as f:
+                yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
 
+            subprocess.run(f"sudo cp {tmp_file} {file_path}", shell=True, check=True)
+            subprocess.run(f"sudo chmod 644 {file_path}", shell=True, check=False)
 
+        subprocess.run("sudo netplan apply", shell=True, check=True)
+        print(f"[OK] Interfaces {interfaces} configuradas vía DHCP (servidor 192.168.1.10)")
+
+    except Exception as e:
+        print(f"[ERROR] {e}")
 
 
 
