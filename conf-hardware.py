@@ -303,9 +303,16 @@ def menu_raid():
     nombre_raid = input("Enter RAID name (e.g., md0): ")
     discos = input("Enter devices separated by space (e.g., /dev/sdb /dev/sdc): ").split()
 
-    if not crear_raid(Z - 1, discos, nombre_raid):
+    niveles = {1:0, 2:1, 3:5, 4:10}
+    nivel_raid = niveles.get(Z)
+    if nivel_raid is None:
+        print("[ERROR] Invalid RAID selection")
+        return
+
+    if not crear_raid(nivel_raid, discos, nombre_raid):
         print("[ERROR] RAID creation failed.")
         return
+
 
     print("[INFO] Saving RAID configuration to /etc/mdadm/mdadm.conf...")
     ejecutar("mkdir -p /etc/mdadm")
@@ -360,7 +367,7 @@ def main():
                         "\nSelect an option:\n"
                         "1 set up a raid\n"
                         "2 add spare disk\n"
-                        "3 check status\n "
+                        "3 check status\n"
                         "4 format disks\n"
                         "5 Manage raid\n"
                         "6 Exit\n>"
