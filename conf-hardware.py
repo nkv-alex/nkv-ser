@@ -107,6 +107,15 @@ def formatear_discos():
 
     print("\n[INFO] All selected disks have been formatted uniformly.")
 
+def safe_int_input(prompt):
+    """Input integer safely, stripping non-numeric characters."""
+    while True:
+        raw = input(prompt).strip()
+        # Filtrar caracteres no numéricos
+        raw = ''.join(ch for ch in raw if ch.isdigit())
+        if raw.isdigit():
+            return int(raw)
+        print("[WARN] Invalid input. Please enter a numeric value.")
 
 
 
@@ -321,7 +330,7 @@ def menu_raid():
     print("[INFO] Updating initramfs for boot persistence...")
     ejecutar("update-initramfs -u")
 
-    cantidad_vg = int(input("How many VGs do you want to create?: "))
+    cantidad_vg = safe_int_input("How many VGs do you want to create?: ")
 
     for i in range(cantidad_vg):
         nombre_vg = input(f"Enter name for VG #{i+1}: ")
