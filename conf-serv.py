@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # conf-serv.py
-# Script para Ubuntu 22.04: detectar interfaces, preguntar tipo, actualizar netplan, habilitar forwarding, crear reglas iptables y persistirlas.
+# Script for Ubuntu 22.04: detect interfaces, ask type, update netplan, enable forwarding, create iptables rules and persist them.
 
 import os
 import subprocess
 import shutil
 from datetime import datetime
 import ipaddress
-import yaml
+#import yaml
 import sys
 from pathlib import Path
 import re
@@ -39,43 +39,43 @@ def backup_file(path):
         shutil.copy2(path, dest)
 
 def detect_interfaces():
-    """Detecta interfaces con IPs, usa las del JSON si ya existen,
-    pregunta solo por las nuevas y actualiza el archivo.
+    """Detect interfaces with IPs, use those from JSON if they exist,
+    only ask for new ones and update the file.
     """
     global interfaces
 
-    # --- 1. Cargar JSON existente ---
+    # --- 1. Load existing JSON ---
     if os.path.exists(JSON_FILE):
         try:
             with open(JSON_FILE, "r") as f:
                 interfaces = json.load(f)
-            print(f"[INFO] Configuración cargada desde {JSON_FILE}")
+            print(f"[INFO] Configuration loaded from {JSON_FILE}")
         except Exception as e:
-            print(f"[WARN] No se pudo leer {JSON_FILE}: {e}")
+            print(f"[WARN] Could not read {JSON_FILE}: {e}")
             interfaces = {}
     else:
         interfaces = {}
 
-    # --- 2. Detectar interfaces del sistema ---
+    # --- 2. Detect system interfaces ---
     try:
         res = subprocess.run(
             "ip -o -4 addr show | awk '{print $2,$4}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
             capture_output=True,
             text=True,
             check=False,
-            shell=True  # <- importante
+            shell=True  # <- important
         )
     except Exception as e:
-        print(f"[ERROR] Al ejecutar 'ip': {e}")
+        print(f"[ERROR] Error running 'ip': {e}")
         return {}
     out = res.stdout.strip()
     if not out:
-        print("[ERROR] No se encontraron interfaces con IPv4 asignada.")
+        print("[ERROR] No interfaces with assigned IPv4 found.")
         return interfaces
 
-    print("\n=== Detección de interfaces ===")
+    print("\n=== Interface detection ===")
 
-    # --- 3. Procesar interfaces detectadas ---
+    # --- 3. Process detected interfaces ---
     updated = False
     for line in out.splitlines():
         parts = line.split()
@@ -86,19 +86,19 @@ def detect_interfaces():
         try:
             ipif = ipaddress.IPv4Interface(addr)
         except Exception:
-            print(f"[WARN] Dirección inválida en {iface}: {addr}, se omite.")
+            print(f"[WARN] Invalid address in {iface}: {addr}, skipping.")
             continue
 
-        # Si ya existe y coincide, no preguntar
+        # If already exists and matches, do not ask
         if iface in interfaces and interfaces[iface].get("ip") == str(ipif):
-            print(f"[OK] {iface} sin cambios → tipo: {interfaces[iface]['type']}")
+            print(f"[OK] {iface} unchanged → type: {interfaces[iface]['type']}")
             continue
 
-        # Preguntar solo si es nueva o cambió
-        print(f"\nInterfaz detectada: {iface}")
-        print(f"  Dirección IP: {ipif}")
+        # Ask only if new or changed
+        print(f"\nDetected interface: {iface}")
+        print(f"  IP address: {ipif}")
         suggested = "i" if ipif.ip.is_private else "e"
-        tipo = input(f"¿Esta interfaz es interna (i) o externa (e)? [{suggested}]: ").strip().lower()
+        tipo = input(f"Is this interface internal (i) or external (e)? [{suggested}]: ").strip().lower()
         if tipo == "":
             tipo = suggested
         if tipo not in ("i", "e", "internal", "external"):
@@ -108,44 +108,44 @@ def detect_interfaces():
         interfaces[iface] = {"ip": str(ipif), "type": t}
         updated = True
 
-    # --- 4. Guardar cambios si hubo actualizaciones ---
+    # --- 4. Save changes if there were updates ---
     if updated:
         try:
             with open(JSON_FILE, "w") as f:
                 json.dump(interfaces, f, indent=4)
-            print(f"[INFO] Configuración actualizada en {JSON_FILE}")
+            print(f"[INFO] Configuration updated in {JSON_FILE}")
         except Exception as e:
-            print(f"[ERROR] No se pudo guardar {JSON_FILE}: {e}")
+            print(f"[ERROR] Could not save {JSON_FILE}: {e}")
     else:
-        print("[INFO] No hubo cambios en las interfaces.")
+        print("[INFO] No changes in interfaces.")
 
-    # --- 5. Mostrar resumen ---
+    # --- 5. Show summary ---
     intern = [k for k, v in interfaces.items() if v["type"] == "internal"]
     extern = [k for k, v in interfaces.items() if v["type"] == "external"]
-    print("\nResumen final:")
-    print(f"  Internas: {intern}")
-    print(f"  Externas: {extern}")
+    print("\nFinal summary:")
+    print(f"  Internal: {intern}")
+    print(f"  External: {extern}")
 
     return interfaces
 
 
 def build_netplan_yaml(existing_yaml, interfaces):
     """
-    existing_yaml: dict (parsed YAML) o {}
-    interfaces: dict como devuelve detect_interfaces()
-    Devuelve YAML dict modificado.
+    existing_yaml: dict (parsed YAML) or {}
+    interfaces: dict as returned by detect_interfaces()
+    Returns modified YAML dict.
     """
     if not isinstance(existing_yaml, dict):
         existing_yaml = {}
 
-    # Asegurar estructura base
+    # Ensure base structure
     net = existing_yaml.get("network", {})
-    # mantener version/renderer si existen, si no poner defaults
+    # keep version/renderer if they exist, otherwise set defaults
     version = net.get("version", 2)
     renderer = net.get("renderer", "networkd")
     ethernets = net.get("ethernets", {}) or {}
 
-    # Actualizar/añadir interfaces según tipo
+    # Update/add interfaces by type
     for iface, data in interfaces.items():
         ip = data.get("ip")
         tipo = data.get("type")
@@ -154,27 +154,27 @@ def build_netplan_yaml(existing_yaml, interfaces):
         iface_data = ethernets.get(iface, {})
 
         if tipo == "external":
-            # externa: DHCP
+            # external: DHCP
             iface_data["dhcp4"] = True
-            # conservar optional si ya existe, si no poner true para evitar bloqueos al boot
+            # keep optional if exists, otherwise set true to avoid boot blocks
             iface_data["optional"] = iface_data.get("optional", True)
-            # eliminar addresses/routes/nameservers si había estático y ahora dhcp
+            # remove addresses/routes/nameservers if was static and now dhcp
             iface_data.pop("addresses", None)
             iface_data.pop("routes", None)
-            # No tocaremos nameservers globales ya existentes
+            # Do not touch existing global nameservers
         else:
-            # interna: estática
+            # internal: static
             iface_data["dhcp4"] = False
             iface_data["addresses"] = [ip]
-            # Si no tiene nameservers definidos, añadir unos por defecto (puedes cambiar)
+            # If no nameservers defined, add some defaults (can change)
             if "nameservers" not in iface_data:
                 iface_data["nameservers"] = {"addresses": ["8.8.8.8", "1.1.1.1"]}
-            # No forzamos gateway externo; si quieres añadir un route específico coméntalo
-            # Se mantiene cualquier configuración previa (routes, mtu, etc.)
-            iface_data.pop("optional", None)  # normalmente internas no optional
+            # Do not force external gateway; if you want to add a specific route, comment here
+            # Keep any previous config (routes, mtu, etc.)
+            iface_data.pop("optional", None)  # normally internal not optional
         ethernets[iface] = iface_data
 
-    # Reconstruir estructura
+    # Rebuild structure
     new_net = {
         "version": version,
         "renderer": renderer,
@@ -184,49 +184,49 @@ def build_netplan_yaml(existing_yaml, interfaces):
 
 def write_netplan_file(interfaces):
     """
-    Localiza primer archivo en /etc/netplan/ y lo modifica.
-    Si no existe, crea NETPLAN_DEFAULT_PATH.
+    Finds first file in /etc/netplan/ and modifies it.
+    If not exists, creates NETPLAN_DEFAULT_PATH.
     """
-    # localizar archivo a modificar
+    # find file to modify
     netplan_files = [f for f in os.listdir("/etc/netplan") if f.endswith(".yaml") or f.endswith(".yml")] if os.path.isdir("/etc/netplan") else []
     if netplan_files:
         path = os.path.join("/etc/netplan", netplan_files[0])
     else:
-        # crear directorio si no existe
+        # create directory if not exists
         os.makedirs(os.path.dirname(NETPLAN_DEFAULT_PATH), exist_ok=True)
         path = NETPLAN_DEFAULT_PATH
 
-    # leer existente
+    # read existing
     existing_yaml = {}
     if os.path.exists(path):
         try:
             with open(path, "r") as f:
                 existing_yaml = yaml.safe_load(f) or {}
         except Exception as e:
-            print(f"[WARN] No se pudo parsear {path}: {e}. Se trabajará sobre contenido vacío.")
+            print(f"[WARN] Could not parse {path}: {e}. Working with empty content.")
             existing_yaml = {}
 
     # backup
     backup_file(path)
-    print(f"[INFO] Modificando netplan: {path}")
+    print(f"[INFO] Modifying netplan: {path}")
 
-    # construir nuevo YAML dict
+    # build new YAML dict
     modified = build_netplan_yaml(existing_yaml, interfaces)
 
-    # escribir manteniendo estilo legible
+    # write keeping readable style
     try:
         with open(path, "w") as f:
             yaml.safe_dump(modified, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
     except Exception as e:
-        print(f"[ERROR] No se pudo escribir {path}: {e}")
+        print(f"[ERROR] Could not write {path}: {e}")
         return False
 
-    print(f"[INFO] Netplan actualizado -> {path}")
+    print(f"[INFO] Netplan updated -> {path}")
     return True
 
 def enable_ip_forwarding():
     backup_file(SYSCTL_CONF)
-    # leer si existe, si no crear
+    # read if exists, if not create
     lines = []
     if os.path.exists(SYSCTL_CONF):
         with open(SYSCTL_CONF, "r") as f:
@@ -246,12 +246,12 @@ def enable_ip_forwarding():
     try:
         run("sysctl -p", check=True)
     except Exception:
-        print("[WARN] sysctl -p falló o devolvió error. Revisa /etc/sysctl.conf")
-    print("[INFO] IP forwarding habilitado")
+        print("[WARN] sysctl -p failed or returned error. Check /etc/sysctl.conf")
+    print("[INFO] IP forwarding enabled")
 
 def build_iptables_rules(interfaces):
     """
-    interfaces: dict detectado. Construye reglas usando todas las internas->externas.
+    interfaces: detected dict. Builds rules using all internals->externals.
     """
     internals = [k for k,v in interfaces.items() if v["type"]=="internal"]
     externals = [k for k,v in interfaces.items() if v["type"]=="external"]
@@ -261,18 +261,18 @@ def build_iptables_rules(interfaces):
              ":INPUT ACCEPT [0:0]",
              ":OUTPUT ACCEPT [0:0]",
              ":POSTROUTING ACCEPT [0:0]"]
-    # Añadir MASQUERADE por cada interfaz externa
+    # Add MASQUERADE for each external interface
     for ext in externals:
-        # Masquerade todo lo que salga por ext
+        # Masquerade everything going out via ext
         lines.append(f"-A POSTROUTING -o {ext} -j MASQUERADE")
     lines.append("COMMIT")
     lines.append("*filter")
     lines.append(":INPUT ACCEPT [0:0]")
     lines.append(":FORWARD ACCEPT [0:0]")
     lines.append(":OUTPUT ACCEPT [0:0]")
-    # Permitir conexiones establecidas
+    # Allow established connections
     lines.append("-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
-    # Permitir tráfico de internas hacia externas
+    # Allow traffic from internals to externals
     for intf in internals:
         for ext in externals:
             lines.append(f"-A FORWARD -i {intf} -o {ext} -j ACCEPT")
@@ -289,118 +289,118 @@ def save_iptables_rules(rules_text):
     try:
         run(f"iptables-restore < {IPTABLES_RULES_V4}", check=True)
     except Exception:
-        print("[WARN] iptables-restore falló; intenta aplicar manualmente o revisa iptables.")
-    print(f"[INFO] Reglas iptables guardadas en {IPTABLES_RULES_V4}")
+        print("[WARN] iptables-restore failed; try to apply manually or check iptables.")
+    print(f"[INFO] iptables rules saved in {IPTABLES_RULES_V4}")
 
 def try_enable_persistent():
-    # Solo para Debian/Ubuntu: intentar instalar iptables-persistent
+    # Only for Debian/Ubuntu: try to install iptables-persistent
     try:
         run("which apt >/dev/null 2>&1", check=True)
-        print("[INFO] Intentando instalar iptables-persistent (si falta)...")
+        print("[INFO] Trying to install iptables-persistent (if missing)...")
         run("DEBIAN_FRONTEND=noninteractive apt-get update -y", check=False)
         run("DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent", check=False)
         run("systemctl enable netfilter-persistent.service", check=False)
         run("systemctl restart netfilter-persistent.service", check=False)
     except Exception:
-        print("[WARN] No se pudo habilitar iptables-persistent automáticamente.")
+        print("[WARN] Could not enable iptables-persistent automatically.")
 
 def apply_netplan():
     try:
         run("netplan apply", check=True)
-        print("[INFO] Netplan aplicado")
+        print("[INFO] Netplan applied")
     except Exception:
-        print("[WARN] netplan apply falló. Revisa el YAML y ejecuta 'sudo netplan apply' manualmente.")
+        print("[WARN] netplan apply failed. Check the YAML and run 'sudo netplan apply' manually.")
 
 def validate_interfaces(interfaces):
     intern = [k for k,v in interfaces.items() if v["type"]=="internal"]
     extern = [k for k,v in interfaces.items() if v["type"]=="external"]
     if not intern:
-        print("[ERROR] No hay interfaces marcadas como internas. Se necesita al menos una.")
+        print("[ERROR] No interfaces marked as internal. At least one is required.")
         return False
     if not extern:
-        print("[ERROR] No hay interfaces marcadas como externas. Se necesita al menos una.")
+        print("[ERROR] No interfaces marked as external. At least one is required.")
         return False
     return True
 
 def nat_configuration():
     if os.geteuid() != 0:
-        print("Ejecuta este script con sudo/root")
+        print("Run this script with sudo/root")
         sys.exit(1)
 
-    print("=== Configuración NAT automática Ubuntu 22.04 ===")
+    print("=== Automatic NAT configuration Ubuntu 22.04 ===")
     interfaces = detect_interfaces()
     if not interfaces:
-        print("[ERROR] No hay interfaces detectadas. Abortando.")
+        print("[ERROR] No interfaces detected. Aborting.")
         return
 
     if not validate_interfaces(interfaces):
-        print("[ERROR] Validación de interfaces falló. Abortando.")
+        print("[ERROR] Interface validation failed. Aborting.")
         return
 
-    # Modificar netplan existente (backup incluido)
+    # Modify existing netplan (backup included)
     ok = write_netplan_file(interfaces)
     if not ok:
-        print("[ERROR] Error al escribir netplan. Abortando antes de tocar iptables.")
+        print("[ERROR] Error writing netplan. Aborting before touching iptables.")
         return
 
-    # Habilitar IP forwarding
+    # Enable IP forwarding
     enable_ip_forwarding()
 
-    # Generar y guardar reglas iptables
+    # Generate and save iptables rules
     rules_text = build_iptables_rules(interfaces)
     save_iptables_rules(rules_text)
 
-    # Intentar persistencia (iptables-persistent)
+    # Try persistence (iptables-persistent)
     try_enable_persistent()
 
-    # Aplicar netplan
+    # Apply netplan
     apply_netplan()
 
-    print("\n[FIN] Configuración NAT completada.")
-    print("Revisa los archivos:")
-    print(f" - Netplan modificado en /etc/netplan/")
-    print(f" - Backups en {BACKUP_DIR}")
-    print(f" - Reglas iptables en {IPTABLES_RULES_V4}")
+    print("\n[END] NAT configuration completed.")
+    print("Check the files:")
+    print(f" - Netplan modified in /etc/netplan/")
+    print(f" - Backups in {BACKUP_DIR}")
+    print(f" - iptables rules in {IPTABLES_RULES_V4}")
 
 def configure_ssh():
-    print("=== Configuración personalizada de SSH ===")
+    print("=== Custom SSH configuration ===")
 
     config_path = "/etc/ssh/sshd_config"
     backup_path = f"{config_path}.bak"
 
     # 1️⃣ Backup
     if not os.path.exists(backup_path):
-        print(f"[INFO] Generando backup: {backup_path}")
+        print(f"[INFO] Generating backup: {backup_path}")
         run(f"sudo cp {config_path} {backup_path}")
     else:
-        print(f"[INFO] Backup existente: {backup_path}")
+        print(f"[INFO] Existing backup: {backup_path}")
 
-    # 2️⃣ Parámetros solicitados
-    print("\n=== Parámetros SSH ===")
-    puerto = input("Puerto SSH (default 22): ").strip() or "22"
-    root_login = input("¿Permitir login de root? (yes/no) [no]: ").strip().lower() or "no"
+    # 2️⃣ Requested parameters
+    print("\n=== SSH parameters ===")
+    puerto = input("SSH port (default 22): ").strip() or "22"
+    root_login = input("Allow root login? (yes/no) [no]: ").strip().lower() or "no"
 
-    # 3️⃣ Detección de usuarios
-    print("\n=== Detección de usuarios locales ===")
+    # 3️⃣ User detection
+    print("\n=== Local user detection ===")
     res = run("awk -F: '$3 >= 1000 && $3 < 60000 {print $1}' /etc/passwd", check=False)
     users = res.stdout.strip().splitlines()
     if users:
-        print("Usuarios detectados:")
+        print("Detected users:")
         for u in users:
             print(f"  - {u}")
     else:
-        print("[WARN] No se encontraron usuarios normales en el sistema.")
-    allowed = input("\nUsuarios permitidos por SSH (espacio = todos): ").strip()
+        print("[WARN] No normal users found on the system.")
+    allowed = input("\nUsers allowed by SSH (space = all): ").strip()
     allow_users = f"AllowUsers {allowed}" if allowed else ""
 
-    # 4️⃣ Lectura del archivo
+    # 4️⃣ Read the file
     with open(config_path, "r") as f:
         lines = f.readlines()
 
     def set_param(param, value):
         """
-        Busca la línea correspondiente en sshd_config, descomenta si es necesario,
-        y cambia el valor. Si no existe, la añade al final.
+        Finds the corresponding line in sshd_config, uncomments if necessary,
+        and changes the value. If not exists, adds at the end.
         """
         pattern = re.compile(rf'^\s*#?\s*{re.escape(param)}\b', re.IGNORECASE)
         replaced = False
@@ -412,7 +412,7 @@ def configure_ssh():
         if not replaced:
             lines.append(f"\n{param} {value}\n")
 
-    # 5️⃣ Aplicar parámetros clave
+    # 5️⃣ Apply key parameters
     set_param("Port", puerto)
     set_param("PermitRootLogin", root_login)
     set_param("PasswordAuthentication", "yes")
@@ -424,7 +424,7 @@ def configure_ssh():
     if allow_users:
         set_param("AllowUsers", allowed)
 
-    # 6️⃣ Guardar
+    # 6️⃣ Save
     tmp_file = "/tmp/sshd_config_tmp"
     with open(tmp_file, "w") as f:
         f.writelines(lines)
@@ -445,7 +445,7 @@ def configure_ssh():
         print(f"[INFO] Usuarios permitidos: {allowed}")
     print(f"[INFO] Backup en: {backup_path}")
 
-def configure_dhcp():
+def configure_dhcp(interafaces):
     print("=== Configuración automática de DHCP (isc-dhcp-server) ===")
 
     # Instalación del paquete
@@ -457,18 +457,9 @@ def configure_dhcp():
     dhcp_iface_conf = "/etc/default/isc-dhcp-server"
     backup_file(dhcp_conf)
     backup_file(dhcp_iface_conf)
+    internals = [k for k,v in interfaces.items() if v["type"]=="internal"]
 
-    # Detectar interfaces internas (reutilizando lógica del script)
-    res = run("ip -o -4 addr show | awk '{print $2,$4}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true", check=False)
-    interfaces = []
-    for line in res.stdout.strip().splitlines():
-        iface, addr = line.split()
-        ipif = ipaddress.IPv4Interface(addr)
-        if ipif.ip.is_private:
-            interfaces.append((iface, str(ipif)))
-    if not interfaces:
-        print("[ERROR] No se detectaron interfaces privadas para DHCP.")
-        return
+    # Detectar interfaces internas
 
     print("\nInterfaces candidatas para DHCP:")
     for i, (iface, ip) in enumerate(interfaces, 1):
@@ -537,14 +528,14 @@ subnet {red.network_address} netmask {red.netmask} {{
 
 def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
     """
-    Descubre hosts en todas las interfaces internas definidas globalmente y
-    envía un payload UDP.
+    Discovers hosts on all internal interfaces defined globally and
+    sends a UDP payload.
 
     Args:
-        payload (str): Mensaje que se enviará a los hosts descubiertos.
-        port (int): Puerto UDP de comunicación.
-        timeout (float): Tiempo máximo de escucha por interfaz (s).
-        send (bool): Si True, envía el payload tras descubrir los hosts.
+        payload (str): Message to send to discovered hosts.
+        port (int): UDP communication port.
+        timeout (float): Maximum listen time per interface (s).
+        send (bool): If True, sends the payload after discovering hosts.
     """
     import socket, struct, fcntl, time, uuid, json, os
 
@@ -552,7 +543,7 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
     RESPONSE_PREFIX = "DISCOVER_RESPONSE"
     HOSTS_FILE = "hosts.json"
 
-    # Se asume que existe un dict global 'interfaces' definido desde otra función
+    # Assumes a global 'interfaces' dict defined from another function
     global interfaces
     internals = [iface for iface, v in interfaces.items() if v["type"] == "internal"]
     
@@ -566,22 +557,22 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
                 struct.pack('256s', iface.encode('utf-8')[:15])
             )[20:24])
         except Exception as e:
-            print(f"[net] Error obteniendo broadcast de {iface}: {e}")
+            print(f"[net] Error getting broadcast for {iface}: {e}")
             return "255.255.255.255"
 
     def save_hosts(discovered):
         try:
             with open(HOSTS_FILE, "w") as f:
                 json.dump(discovered, f, indent=2)
-            print(f"[store] {len(discovered)} hosts guardados en {HOSTS_FILE}")
+            print(f"[store] {len(discovered)} hosts saved in {HOSTS_FILE}")
         except Exception as e:
-            print(f"[store] Error al guardar hosts: {e}")
+            print(f"[store] Error saving hosts: {e}")
 
     discovered_total = {}
 
     for iface in internals:
         broadcast_ip = get_broadcast(iface)
-        print(f"[discover:{iface}] usando broadcast {broadcast_ip}")
+        print(f"[discover:{iface}] using broadcast {broadcast_ip}")
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -590,7 +581,7 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
         token = str(uuid.uuid4())[:8]
         discover_msg = f"{DISCOVER_MESSAGE_PREFIX}:{token}"
         sock.sendto(discover_msg.encode(), (broadcast_ip, port))
-        print(f"[discover:{iface}] Broadcast enviado, esperando {timeout}s...")
+        print(f"[discover:{iface}] Broadcast sent, waiting {timeout}s...")
 
         start_time = time.time()
         while True:
@@ -603,17 +594,17 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
                     hostname = parts[1] if len(parts) > 1 else ip
                     nodeid = parts[2] if len(parts) > 2 else ""
                     discovered_total[ip] = {"hostname": hostname.strip(), "nodeid": nodeid.strip()}
-                    print(f"[discover:{iface}] respuesta de {ip} -> {hostname}")
+                    print(f"[discover:{iface}] response from {ip} -> {hostname}")
             except socket.timeout:
                 break
             if time.time() - start_time > timeout:
                 break
 
     if not discovered_total:
-        print("[discover] No se detectaron listeners en interfaces internas.")
+        print("[discover] No listeners detected on internal interfaces.")
         return {}
 
-    print(f"[discover] Total de {len(discovered_total)} hosts encontrados:")
+    print(f"[discover] Total {len(discovered_total)} hosts found:")
     for ip, info in discovered_total.items():
         print(f"  - {ip} ({info.get('hostname')})")
 
@@ -621,27 +612,27 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
 
     if send:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(2.0)  # Tiempo máximo de espera por respuesta
+        sock.settimeout(2.0)  # Maximum wait time for response
         for ip in discovered_total.keys():
             try:
                 sock.sendto(payload.encode(), (ip, port))
-                print(f"[send] payload enviado a {ip}")
+                print(f"[send] payload sent to {ip}")
                 
-                # Escuchar la respuesta
+                # Listen for response
                 try:
-                    data, addr = sock.recvfrom(1024)  # buffer de 1024 bytes
-                    print(f"[recv] respuesta de {addr[0]}: {data.decode(errors='ignore')}")
+                    data, addr = sock.recvfrom(1024)  # 1024 byte buffer
+                    print(f"[recv] response from {addr[0]}: {data.decode(errors='ignore')}")
                 except socket.timeout:
-                    print(f"[recv] no hubo respuesta de {ip}")
+                    print(f"[recv] no response from {ip}")
                 
             except Exception as e:
-                print(f"[send] fallo al enviar a {ip}: {e}")
+                print(f"[send] failed to send to {ip}: {e}")
 
 
     return discovered_total
 
 def main():
-    O = int(input("Seleccione una opción:\n1. Configurar NAT\n2. Configurar SSH\n3. Configurar DHCP\n4. provar conexion\nOpción: "))
+    O = int(input("Select an option:\n1. Configure NAT\n2. Configure SSH\n3. Configure DHCP\n4. DEBUG\nOption: "))
     match O:
         case 1:
             nat_configuration()
@@ -651,8 +642,19 @@ def main():
             configure_dhcp()
             send_to_hosts("config_dhcp")
         case 4:
-            detect_interfaces()
-            send_to_hosts("test")
+            Z = int(input("Select an option:\n1. Test connection\n2. test interfaces\nOption: "))
+            match Z:
+                case 1:
+                    detect_interfaces()
+                    send_to_hosts("test")
+                case 2:
+                    with open("interfaces.json", "r") as f:
+                        data = json.load(f)
+                    tipo_int = data["enp0s3"]
+                    print(tipo_int)
+        case 5:
+            pass
+            
 
 
 
