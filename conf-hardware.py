@@ -17,51 +17,40 @@ def ejecutar(cmd):
         return False
 
 def formatear_discos():
-    """Format multiple disks uniformly with same GPT layout and filesystem."""
-    print("[INFO] Starting uniform disk formatting routine...")
-    
-    # Listar discos seleccionados
+    """Full wipe + uniform GPT partitioning and filesystem formatting across multiple disks."""
+    print("[INFO] Starting full disk reinitialization and uniform formatting routine...")
+
     discos = input("Enter devices to format (e.g., /dev/sdb /dev/sdc /dev/sdd): ").split()
-    
     if not discos:
         print("[WARN] No disks provided.")
         return
-    
-    # ==============================
-    # Obtener tamaños y detectar el más pequeño
-    # ==============================
+
     tamanos = {}
     for disco in discos:
         try:
             cmd = f"lsblk -b -dn -o SIZE {disco}"
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             if res.returncode == 0:
-                tamaño_bytes = int(res.stdout.strip())
-                tamanos[disco] = tamaño_bytes
+                tamanos[disco] = int(res.stdout.strip())
             else:
                 print(f"[ERROR] Could not read size of {disco}")
         except Exception as e:
             print(f"[ERROR] {disco}: {e}")
-    
+
     if not tamanos:
         print("[ERROR] Could not determine any disk size.")
         return
 
-    # Mostrar tamaños detectados
     print("\nDetected disk sizes:")
     for d, sz in tamanos.items():
         print(f"  {d}: {sz / (1024**3):.2f} GB")
-    
+
     disco_min = min(tamanos, key=tamanos.get)
     min_gb = tamanos[disco_min] / (1024**3)
     print(f"\n[INFO] Smallest disk: {disco_min} ({min_gb:.2f} GB)")
-    
-    # ==============================
-    # Tamaño de partición deseado
-    # ==============================
+
     tamaño_input = input(f"Enter partition size (<= {min_gb:.2f}GB, e.g., 25GB or 500MB): ").upper().strip()
-    
-    # Validar formato
+
     if tamaño_input.endswith("GB"):
         tamaño_bytes = float(tamaño_input[:-2]) * (1024**3)
     elif tamaño_input.endswith("MB"):
@@ -69,43 +58,55 @@ def formatear_discos():
     else:
         print("[ERROR] Invalid size format. Use GB or MB suffix.")
         return
-    
+
     if tamaño_bytes > tamanos[disco_min]:
         print("[ERROR] Size exceeds smallest disk capacity.")
         return
 
-    # ==============================
-    # Seleccionar Filesystem
-    # ==============================
     tipo_fs = input("Enter filesystem type (e.g., ext4, xfs, btrfs): ").strip()
-    
-    # ==============================
-    # Formateo uniforme
-    # ==============================
-    print("\n[INFO] Starting partitioning and formatting process...\n")
+
+    print("\n[INFO] Starting complete wipe and partitioning...\n")
+
     for disco in discos:
         print(f"[TASK] Processing {disco}...")
 
-        # Limpiar estructuras previas
+        # ================================================
+        # Limpieza total previa (RAID / LVM / Particiones)
+        # ================================================
+        print("[STEP] Stopping any RAID arrays containing this disk...")
+        ejecutar(f"mdadm --stop {disco} || true")
+        ejecutar(f"mdadm --zero-superblock {disco} || true")
+
+        print("[STEP] Removing any LVM traces...")
+        ejecutar(f"pvremove -ff -y {disco} || true")
+        ejecutar(f"vgremove -ff -y {disco} || true")
+        ejecutar(f"lvremove -ff -y {disco} || true")
+
+        print("[STEP] Wiping all signatures...")
         ejecutar(f"wipefs -a {disco}")
         ejecutar(f"sgdisk --zap-all {disco}")
 
-        # Crear tabla GPT
+        print("[STEP] Zeroing first and last 10MB for full clean slate...")
+        ejecutar(f"dd if=/dev/zero of={disco} bs=1M count=10 conv=fdatasync status=none")
+        ejecutar(f"blkdiscard {disco} || true")
+
+        # ================================================
+        # Crear nueva estructura GPT + partición
+        # ================================================
         if not ejecutar(f"parted -s {disco} mklabel gpt"):
             print(f"[ERROR] Failed to create GPT on {disco}")
             continue
 
-        # Crear partición única del tamaño especificado
         ejecutar(f"parted -s {disco} mkpart primary 1MiB {tamaño_input}")
 
         # Obtener nombre de la nueva partición
-        part = disco + "1"  # Asumiendo nomenclatura estándar /dev/sdX1
+        part = disco + "1" if "nvme" not in disco else disco + "p1"
         print(f"[INFO] Formatting {part} as {tipo_fs}...")
-        ejecutar(f"mkfs.{tipo_fs} {part}")
+        ejecutar(f"mkfs.{tipo_fs} -F {part}")
 
-        print(f"[OK] {disco} formatted successfully with {tipo_fs} ({tamaño_input}).")
+        print(f"[OK] {disco} fully wiped and formatted ({tipo_fs}, {tamaño_input}).\n")
 
-    print("\n[INFO] All selected disks have been formatted uniformly.")
+    print("[INFO] All selected disks cleaned and formatted uniformly.")
 
 def safe_int_input(prompt):
     """Input integer safely, stripping non-numeric characters."""
@@ -419,3 +420,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+'''
+program writed by nkv also know as nkv-alex
+
+ /\_/\  
+( o.o ) 
+ > ^ <
+ >cat<
+'''
