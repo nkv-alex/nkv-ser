@@ -674,3 +674,17 @@ def main():
     
 if __name__ == "__main__":
     main()
+'''
+program writed by nkv also know as nkv-alex
+
+ ^   ^vv
+( o.o ) 
+ > ^ <
+ >cat<
+'''
+# copiable comments for program
+# [INFO]
+# [WARN]
+# [ERROR]
+# [STEP]
+# [OK]

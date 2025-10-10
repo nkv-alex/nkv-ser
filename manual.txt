@@ -1,1 +1,102 @@
-a
+MANUAL CORPORATIVO - RESUMEN FUNCIONAL
+===========================================
+Fecha de emisión: 2025-10-10 07:49:36
+Autor: nkv-alex
+Proyecto: Infraestructura Automatizada Python Suite
+
+------------------------------------------------------------
+1. DESCRIPCIÓN GENERAL
+------------------------------------------------------------
+Este conjunto de scripts automatiza la configuración de hardware y servicios
+de red en entornos Linux (Ubuntu 22.04+). Los componentes principales son:
+
+ - conf-hardware.py → Gestión avanzada de discos, RAIDs y volúmenes LVM.
+ - conf-serv.py → Configuración automatizada de NAT, SSH, DHCP y reglas iptables.
+ - listener.py → Servicio UDP para descubrimiento y control remoto interno.
+
+Cada módulo está diseñado para ejecución con privilegios root
+y emplea utilidades nativas del sistema (mdadm, lvm, netplan, iptables).
+
+------------------------------------------------------------
+2. MÓDULO: conf-hardware.py
+------------------------------------------------------------
+OBJETIVO: Automatizar la configuración de almacenamiento local y RAID.
+
+FUNCIONALIDADES CLAVE:
+ • Formateo masivo de discos y generación uniforme de particiones GPT.
+ • Creación, monitoreo y gestión de arreglos RAID (niveles 0,1,5,10).
+ • Integración con LVM: creación, extensión, reducción y eliminación de volúmenes lógicos.
+ • Limpieza total de discos (wipefs, dd, vgremove, pvremove, etc.).
+ • Consola de administración interactiva con menú avanzado de RAID y LVM.
+ • Persistencia de configuraciones RAID mediante /etc/mdadm/mdadm.conf.
+ • Aplicación de cambios con update-initramfs para arranque correcto.
+
+MENÚ PRINCIPAL:
+ 1. RAID Configuration → Creación o gestión de arreglos RAID.
+ 2. Coming soon → Módulos futuros de administración de hardware.
+ 3. Exit → Salida segura.
+
+------------------------------------------------------------
+3. MÓDULO: conf-serv.py
+------------------------------------------------------------
+OBJETIVO: Configurar automáticamente la infraestructura de red y servicios.
+
+FUNCIONALIDADES CLAVE:
+ • Detección automática de interfaces (internas/externas).
+ • Configuración dinámica de netplan con soporte DHCP/estático.
+ • Activación de IP forwarding y generación de reglas NAT persistentes.
+ • Configuración de servidor DHCP ISC y asignación automática de rangos.
+ • Configuración segura de SSH (puerto, root login, usuarios permitidos).
+ • Detección y broadcast UDP para descubrir hosts y enviar payloads remotos.
+ • Instalación automática de iptables-persistent y servicios críticos.
+
+FLUJO PRINCIPAL (menú):
+ 1. Configure NAT
+ 2. Configure SSH
+ 3. Configure DHCP
+ 4. DEBUG / Pruebas de red internas
+
+ARCHIVOS CLAVE GENERADOS:
+ - /etc/netplan/ → Configuración de red (copias de seguridad automáticas).
+ - /etc/iptables/rules.v4 → Reglas NAT persistentes.
+ - /etc/dhcp/dhcpd.conf → Configuración del servicio DHCP.
+ - interfaces.json → Registro de interfaces internas/externas detectadas.
+
+------------------------------------------------------------
+4. MÓDULO: listener.py
+------------------------------------------------------------
+OBJETIVO: Servicio ligero UDP para respuesta y control interno.
+
+FUNCIONALIDADES CLAVE:
+ • Escucha de broadcast UDP en el puerto 50000.
+ • Respuesta automática a mensajes DISCOVER_REQUEST con identificación del host.
+ • Recepción de comandos básicos (“test”, “config_dhcp”) y ejecución de acciones.
+ • Módulo forzar_dhcp(): Reconfigura todas las interfaces de red en modo DHCP.
+ • Comunicación bidireccional con conf-serv.py mediante payloads UDP.
+ • Log en tiempo real de mensajes recibidos y respuestas emitidas.
+
+------------------------------------------------------------
+5. REQUISITOS DE SISTEMA
+------------------------------------------------------------
+ • Sistema operativo: Ubuntu Server 22.04 o superior.
+ • Dependencias: mdadm, lvm2, iptables, isc-dhcp-server, netplan, yaml.
+ • Permisos: ejecución con privilegios root (sudo).
+ • Red: interfaces funcionales internas/externas para NAT y descubrimiento.
+
+------------------------------------------------------------
+6. NOTAS CORPORATIVAS
+------------------------------------------------------------
+ • Todos los scripts siguen el estándar de logging interno [INFO], [WARN], [ERROR], [STEP], [OK].
+ • Las copias de seguridad se generan automáticamente antes de sobrescribir archivos críticos.
+ • Los módulos son independientes pero interoperables en entornos gestionados.
+ • Uso recomendado: laboratorios, despliegues controlados, automatización de red y almacenamiento.
+
+------------------------------------------------------------
+7. AUTOR Y SOPORTE
+------------------------------------------------------------
+Desarrollado por: nkv-alex
+Comentarios Generados por: OPEN-IA
+Versión inicial: 2025
+Uso interno autorizado. Contactar al administrador de sistemas para soporte.
+
+============================================================
