@@ -120,6 +120,7 @@ def formatear_discos():
         print("[STEP] Zeroing first 10MB for full clean slate...")
         ejecutar(f"dd if=/dev/zero of={disco} bs=1M count=10 conv=fdatasync status=none || true")
         ejecutar(f"blkdiscard {disco} || true")
+        ejecutar(f'sudo sgdisk --zap-all {disco}')
 
         print(f"[OK] Disk {disco} fully cleaned and ready for reuse.\n")
 
