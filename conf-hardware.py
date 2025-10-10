@@ -71,36 +71,57 @@ def formatear_discos():
         print(f"[TASK] Processing {disco}...")
 
         # ================================================
-        # Limpieza total (LV → VG → PV → RAID → FS)
+        # Desmontar cualquier filesystem
         # ================================================
-        print("[STEP] Unmounting any filesystems related to this disk...")
-        ejecutar(f"mount | grep {disco} | awk '{{print $3}}' | xargs -r -n1 umount -f || true")
+        print("[STEP] Unmounting all filesystems on this disk...")
+        ejecutar(f"lsblk -ln -o MOUNTPOINT {disco} | grep -v '^$' | xargs -r -n1 umount -f || true")
 
-        print("[STEP] Detecting and unmounting LVM volumes on this disk...")
-        ejecutar(f"lsblk -ln -o NAME,MOUNTPOINT {disco} | awk '$2!=\"\"{{print $2}}' | xargs -r -n1 umount -f || true")
+        # ================================================
+        # Eliminar mappings activos del kernel (LVM)
+        # ================================================
+        print("[STEP] Removing any device mapper entries...")
+        ejecutar(f"dmsetup remove -f {disco}* || true")
 
-        print("[STEP] Removing all Logical Volumes (LVs)...")
+        # ================================================
+        # Eliminar Logical Volumes
+        # ================================================
+        print("[STEP] Removing all Logical Volumes on this disk...")
         ejecutar("lvdisplay --colon 2>/dev/null | cut -d: -f1 | xargs -r -n1 lvremove -ff -y || true")
 
-        print("[STEP] Removing all Volume Groups (VGs)...")
+        # ================================================
+        # Eliminar Volume Groups
+        # ================================================
+        print("[STEP] Removing all Volume Groups on this disk...")
         ejecutar("vgdisplay --colon 2>/dev/null | cut -d: -f1 | xargs -r -n1 vgremove -ff -y || true")
 
-        print("[STEP] Removing all Physical Volumes (PVs)...")
+        # ================================================
+        # Eliminar Physical Volumes
+        # ================================================
+        print("[STEP] Removing all Physical Volumes on this disk...")
         ejecutar("pvdisplay --colon 2>/dev/null | cut -d: -f1 | xargs -r -n1 pvremove -ff -y || true")
 
+        # ================================================
+        # Detener y limpiar cualquier RAID
+        # ================================================
         print("[STEP] Stopping any RAID arrays containing this disk...")
         ejecutar("mdadm --detail --scan | awk '{print $2}' | xargs -r -n1 mdadm --stop || true")
         ejecutar(f"mdadm --zero-superblock {disco} || true")
 
-        print("[STEP] Wiping all signatures and partition tables...")
+        # ================================================
+        # Limpiar firmas y tabla de particiones
+        # ================================================
+        print("[STEP] Wiping all signatures and partition table...")
         ejecutar(f"wipefs -a {disco} || true")
         ejecutar(f"sgdisk --zap-all {disco} || true")
 
-        print("[STEP] Zeroing first and last 10MB for a full clean slate...")
+        # ================================================
+        # Zeroing rápido para cabecera
+        # ================================================
+        print("[STEP] Zeroing first 10MB for full clean slate...")
         ejecutar(f"dd if=/dev/zero of={disco} bs=1M count=10 conv=fdatasync status=none || true")
         ejecutar(f"blkdiscard {disco} || true")
 
-        print(f"[OK] Disk {disco} fully cleaned and ready for reuse.")
+        print(f"[OK] Disk {disco} fully cleaned and ready for reuse.\n")
 
         # ================================================
         # Crear nueva estructura GPT + partición
@@ -118,7 +139,7 @@ def formatear_discos():
 
         print(f"[OK] {disco} fully wiped and formatted ({tipo_fs}, {tamaño_input}).\n")
 
-    print("[INFO] All selected disks cleaned and formatted uniformly.")
+        print("[INFO] All selected disks cleaned and formatted uniformly.")
 
 def safe_int_input(prompt):
     """Input integer safely, stripping non-numeric characters."""
