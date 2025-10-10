@@ -19,13 +19,23 @@ import time
 import uuid
 import argparse
 
+# ==============================
+# MAIN VARIABLES
+# ==============================
+UDP_PORT = 50000
 NETPLAN_DEFAULT_PATH = "/etc/netplan/01-nat.yaml"
 BACKUP_DIR = "/etc/netplan/backups_nat_helper"
 IPTABLES_RULES_V4 = "/etc/iptables/rules.v4"
 SYSCTL_CONF = "/etc/sysctl.conf"
 JSON_FILE = "interfaces.json"
 interfaces = {}  
+DNS_ZONE = "empresa.local"
+DNS_FILE = f"/etc/bind/db.{DNS_ZONE}"
+CACHE_FILE = "/var/lib/dns_autoupdate/hosts_cache.txt"
 
+# ==============================
+# OS FUNCTIONS
+# ==============================
 
 def run(cmd, check=True):
     return subprocess.run(cmd, shell=True, check=check, capture_output=True, text=True)
@@ -38,7 +48,12 @@ def backup_file(path):
         print(f"[INFO] Backup {path} -> {dest}")
         shutil.copy2(path, dest)
 
+# ==============================
+# CONFIG NAT
+# ==============================
+
 def detect_interfaces():
+
     """Detect interfaces with IPs, use those from JSON if they exist,
     only ask for new ones and update the file.
     """
@@ -127,7 +142,6 @@ def detect_interfaces():
     print(f"  External: {extern}")
 
     return interfaces
-
 
 def build_netplan_yaml(existing_yaml, interfaces):
     """
@@ -362,6 +376,10 @@ def nat_configuration():
     print(f" - Backups in {BACKUP_DIR}")
     print(f" - iptables rules in {IPTABLES_RULES_V4}")
 
+# ==============================
+# CONFIG SSH
+# ==============================
+
 def configure_ssh():
     print("=== Custom SSH configuration ===")
 
@@ -444,6 +462,10 @@ def configure_ssh():
     if allowed:
         print(f"[INFO] Usuarios permitidos: {allowed}")
     print(f"[INFO] Backup en: {backup_path}")
+
+# ==============================
+# CONFIG DHCP
+# ==============================
 
 def configure_dhcp():
     """
@@ -537,6 +559,160 @@ subnet {red.network_address} netmask {red.netmask} {{
         print(f"[INFO] Range: {rango_ini} → {rango_fin}")
     else:
         print("[ERROR] DHCP could not start. Check with: journalctl -u isc-dhcp-server")
+
+# ==============================
+# CONFIG DNS
+# ==============================
+
+def configurar_dns(zona="", ip_servidor=""):
+    """
+    Configura un servidor DNS básico usando Bind9.
+    - Crea zona directa y reversa
+    - Define registros A y NS
+    - Reinicia el servicio
+
+    Args:
+        zona (str): Dominio a gestionar
+        ip_servidor (str): IP del servidor DNS
+    """
+    print("[INFO] Iniciando configuración del servidor DNS...")
+
+    # Instalar bind9 si no está instalado
+    subprocess.run("apt-get update -y && apt-get install -y bind9", shell=True, check=True)
+
+    # Definir rutas
+    named_conf_local = "/etc/bind/named.conf.local"
+    zona_directa = f"/etc/bind/db.{zona}"
+    zona_reversa = f"/etc/bind/db.{ip_servidor.split('.')[2]}.rev"
+
+    # Crear configuración de zona directa y reversa
+    zona_conf = f"""
+zone "{zona}" {{
+    type master;
+    file "{zona_directa}";
+}};
+zone "{'.'.join(ip_servidor.split('.')[:3])}.in-addr.arpa" {{
+    type master;
+    file "{zona_reversa}";
+}};
+"""
+
+    with open(named_conf_local, "a") as f:
+        f.write(zona_conf)
+
+    # Crear archivo de zona directa
+    with open(zona_directa, "w") as f:
+        f.write(f"""
+$TTL    604800
+@       IN      SOA     ns.{zona}. admin.{zona}. (
+                        2         ; Serial
+                        604800     ; Refresh
+                        86400      ; Retry
+                        2419200    ; Expire
+                        604800 )   ; Negative Cache TTL
+;
+@       IN      NS      ns.{zona}.
+ns      IN      A       {ip_servidor}
+@       IN      A       {ip_servidor}
+""")
+
+    # Crear zona reversa
+    ip_last = ip_servidor.split('.')[-1]
+    with open(zona_reversa, "w") as f:
+        f.write(f"""
+$TTL    604800
+@       IN      SOA     ns.{zona}. admin.{zona}. (
+                        2
+                        604800
+                        86400
+                        2419200
+                        604800 )
+;
+@       IN      NS      ns.{zona}.
+{ip_last}    IN      PTR     ns.{zona}.
+""")
+
+    # Reiniciar servicio
+    subprocess.run("systemctl restart bind9 && systemctl enable bind9", shell=True, check=True)
+
+    print("[OK] DNS configurado correctamente.")
+    print(f"Zona: {zona} - Servidor: {ip_servidor}")
+
+def actualizar_dns_local():
+    """
+    Sincroniza los registros DNS con los equipos descubiertos por UDP.
+    - Envía broadcast solicitando nombres
+    - Recibe payloads con formato 'IP?=HOSTNAME'
+    - Actualiza cache local y zona DNS (bind9)
+    """
+    print("[INFO] Iniciando actualización dinámica del DNS local...")
+
+    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+    hosts_cache = {}
+
+    # 1️⃣ Cargar cache existente
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line and "=" in line:
+                    ip, host = line.split("=")
+                    hosts_cache[ip] = host
+
+    # 2️⃣ Enviar broadcast para solicitar nombres
+    send_to_hosts("REQUEST_NAME")
+
+    # 3️⃣ Escuchar respuestas UDP (formato IP?=HOSTNAME)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("", UDP_PORT))
+    sock.settimeout(5.0)
+
+    try:
+        while True:
+            data, _ = sock.recvfrom(1024)
+            payload = data.decode(errors="ignore").strip()
+            match = re.match(r"(\d+\.\d+\.\d+\.\d+)\?=(\S+)", payload)
+            if match:
+                ip, host = match.groups()
+                hosts_cache[ip] = host
+                print(f"[DISCOVERED] {ip} -> {host}")
+    except socket.timeout:
+        pass
+    finally:
+        sock.close()
+
+    # 4️⃣ Guardar cache actualizado
+    with open(CACHE_FILE, "w") as f:
+        for ip, host in hosts_cache.items():
+            f.write(f"{ip}={host}\n")
+
+    # 5️⃣ Actualizar archivo de zona DNS
+    if not os.path.exists(DNS_FILE):
+        print(f"[ERROR] Archivo de zona DNS no encontrado: {DNS_FILE}")
+        return
+
+    with open(DNS_FILE) as f:
+        lines = f.readlines()
+
+    # Filtrar registros A previos
+    lines = [l for l in lines if not re.match(r"^\S+\s+IN\s+A\s+\d+\.\d+\.\d+\.\d+", l)]
+
+    # Insertar nuevos registros A
+    lines.append(f"; Actualización automática {datetime.now().isoformat()}\n")
+    for ip, host in hosts_cache.items():
+        lines.append(f"{host}\tIN\tA\t{ip}\n")
+
+    # 6️⃣ Guardar y reiniciar servicio DNS
+    with open(DNS_FILE, "w") as f:
+        f.writelines(lines)
+
+    subprocess.run("systemctl restart bind9", shell=True, check=False)
+    print("[OK] DNS local actualizado y reiniciado correctamente.")
+
+
+# ==============================
+# COMMUNICATION FUNCTIONS
+# ==============================
 
 def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
     """
@@ -644,18 +820,27 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
     return discovered_total
 
 def main():
-    O = int(input("Select an option:\n1. Configure NAT\n2. Configure SSH\n3. Configure DHCP\n4. DEBUG\nOption: "))
+    O = int(input(
+        "\nSelect an option:\n"
+        "1. DEBUG\n"
+        "2. Configure SSH\n"
+        "3. Configure DHCP\n"
+        "4. configure nat\n"
+        "5. configure DNS\n"
+        "6. configure ftp\n"
+        "7. configure https\n" 
+        "8. configure mail\n"
+        "9. update local-hosts\n"
+        "10.update dns client list\n"
+        "Option\n> "))
+    
+
     match O:
         case 1:
-            nat_configuration()
-        case 2:
-            configure_ssh()
-        case 3:
-            detect_interfaces()
-            configure_dhcp()
-            send_to_hosts("config_dhcp")
-        case 4:
-            Z = int(input("Select an option:\n1. Test connection\n2. test interfaces\nOption: "))
+            Z = int(input("\nSelect an option:\n"
+                          "1. Test connection\n"
+                          "2. test interfaces\n" 
+                          "Option\n> "))
             match Z:
                 case 1:
                     detect_interfaces()
@@ -663,9 +848,30 @@ def main():
                 case 2:
                     detect_interfaces()
                     print(interfaces)
+                
+        case 2:
+            configure_ssh()
+        case 3:
+            detect_interfaces()
+            configure_dhcp()
+            send_to_hosts("config_dhcp")
+        case 4:
+            nat_configuration()
         case 5:
-            pass
-            
+            zona = input("Enter the domain name (e.g., example.com): ").strip()
+            ip_servidor = input("Enter the server IP address").strip()
+            configurar_dns(zona="", ip_servidor="")
+        case 6:
+            print("coming soon")
+        case 7:
+            print("coming soon")
+        case 8:
+            print("coming soon")
+        case 9:
+            send_to_hosts("UPDATE_HOSTS")
+        case 10:
+            actualizar_dns_local()
+
 
 
 
@@ -677,7 +883,7 @@ if __name__ == "__main__":
 '''
 program writed by nkv also know as nkv-alex
 
- ^   ^vv
+ ^   ^
 ( o.o ) 
  > ^ <
  >cat<
