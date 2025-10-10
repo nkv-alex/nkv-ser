@@ -19,6 +19,14 @@ RESPONSE_PREFIX = "DISCOVER_RESPONSE"
 _last_addr = None
 _last_sock = None
 
+ip_hostname_map = []  # Global variable to store IP?=HOSTNAME mappings
+
+def run(cmd, check=True):
+    return subprocess.run(cmd, shell=True, check=check, capture_output=True, text=True)
+
+
+
+
 def respuesta(mensaje: str):
     """
     Envía una respuesta al último host que envió un mensaje.
@@ -82,7 +90,7 @@ def forzar_dhcp():
                 yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
 
             subprocess.run(f"sudo cp {tmp_file} {file_path}", shell=True, check=True)
-            subprocess.run(f"sudo chmod 644 {file_path}", shell=True, check=False)
+            subprocess.run(f"sudo chmod 744 {file_path}", shell=True, check=False)
 
         subprocess.run("sudo netplan apply", shell=True, check=True)
         print(f"[OK] Interfaces {interfaces} configuradas vía DHCP (servidor 192.168.1.10)")
@@ -90,8 +98,15 @@ def forzar_dhcp():
     except Exception as e:
         print(f"[ERROR] {e}")
 
-
-
+def actualizar_dns_local():
+    """
+    Stores the mapping in the format IP?=HOSTNAME in a global variable.
+    """
+    ip = run("ip -o -4 addr show | awk '{print $2,$4}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' | cut -d " " -f2 | cut -d "/" -f1")
+    hostname = run("hostnamectl | grep 'hostname' | cut -d ':' -f2 |tr -s ' '")
+    global ip_hostname_map
+    key = f"{ip}?={hostname}"
+    ip_hostname_map[key] = True  # Value can be True or any placeholder
 
 def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
     """
@@ -126,18 +141,18 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
                 case "test":
                     print(f"[listener] Acción 1 ejecutada por {ip}")
                     respuesta("te escucho")
+
                 case "config_dhcp":
-                    print(f"[listener] Acción SALMON ejecutada por {ip}")
+                    forzar_dhcp()
+                    print(f"[listener] Acción config_dhpc ejecutada por {ip}")
                     respuesta("hecho")
+
+                case "UPDATE_HOSTS":
+                    print(f"[listener] Acción config_dhpc ejecutada por {ip}")
+                    respuesta(ip_hostname_map)
                 case _:
                     print(f"[listener] mensaje desconocido de {ip}: '{text}'")
                     respuesta("none")
-
-
-
-
-
-
 
         except KeyboardInterrupt:
             print("[listener] detenido por usuario.")
