@@ -74,6 +74,7 @@ def formatear_discos():
         # Limpieza total previa (RAID / LVM / Particiones)
         # ================================================
         print("[STEP] Stopping any RAID arrays containing this disk...")
+        ejecutar(f"mdadm --stop /dev/md0 || true")
         ejecutar(f"mdadm --stop {disco} || true")
         ejecutar(f"mdadm --zero-superblock {disco} || true")
 
@@ -285,9 +286,38 @@ def menu_gestion_raid():
 
             # ---------------------------------------------
             case 9:  # DELETE LV
-                nombre_vg = input("Enter VG name: ")
-                nombre_lv = input("Enter LV name to delete: ")
-                ejecutar(f"lvremove -f /dev/{nombre_vg}/{nombre_lv}")
+                nombre_vg = input("Enter VG name: ").strip()
+                nombre_lv = input("Enter LV name to delete: ").strip()
+                ruta_lv = f"/dev/{nombre_vg}/{nombre_lv}"
+
+                print(f"[INFO] Checking if {ruta_lv} is mounted...")
+                # Verificar si está montado y desmontar
+                try:
+                    res = subprocess.run(
+                        f"findmnt -n -o TARGET {ruta_lv}",
+                        shell=True,
+                        capture_output=True,
+                        text=True
+                    )
+                    punto_montaje = res.stdout.strip()
+                    if punto_montaje:
+                        print(f"[INFO] LV is mounted at {punto_montaje}, unmounting...")
+                        ejecutar(f"umount -f {punto_montaje}")
+                    else:
+                        print("[INFO] LV is not mounted.")
+                except Exception as e:
+                    print(f"[WARN] Unable to check mount status: {e}")
+
+                # Borrar el filesystem (wipefs + dd de cabecera)
+                print(f"[STEP] Wiping filesystem signatures from {ruta_lv}...")
+                ejecutar(f"wipefs -a {ruta_lv}")
+                ejecutar(f"dd if=/dev/zero of={ruta_lv} bs=1M count=10 conv=fdatasync status=none")
+
+                # Eliminar el Logical Volume
+                print(f"[STEP] Removing LV {nombre_lv} from VG {nombre_vg}...")
+                ejecutar(f"lvremove -f {ruta_lv}")
+
+                print(f"[OK] Logical Volume {nombre_lv} fully removed and cleaned.")
 
             # ---------------------------------------------
             case 10:  # DELETE VG
@@ -425,7 +455,7 @@ if __name__ == "__main__":
 '''
 program writed by nkv also know as nkv-alex
 
- /\_/\  
+ ^   ^
 ( o.o ) 
  > ^ <
  >cat<
