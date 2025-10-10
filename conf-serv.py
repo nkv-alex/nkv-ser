@@ -860,7 +860,7 @@ def main():
         case 5:
             zona = input("Enter the domain name (e.g., example.com): ").strip()
             ip_servidor = input("Enter the server IP address").strip()
-            configurar_dns(zona="", ip_servidor="")
+            configurar_dns(zona=zona, ip_servidor=ip_servidor)
         case 6:
             print("coming soon")
         case 7:
