@@ -2,7 +2,7 @@ MANUAL CORPORATIVO - RESUMEN FUNCIONAL
 ===========================================
 Fecha de emisión: 2025-10-10 07:49:36
 Autor: nkv-alex
-Autor Manual: Adam Taofick
+Autor Manual: Adam Taoufik
 Proyecto: Infraestructura Automatizada Python Suite
 
 ------------------------------------------------------------
