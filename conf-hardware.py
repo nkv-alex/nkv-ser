@@ -155,7 +155,7 @@ def safe_int_input(prompt):
 
 
 # ==============================
-# RAID + LVM Functions
+# RAID + Manager + LVM Functions
 # ==============================
 
 def crear_raid(tipo, discos, nombre_raid):
@@ -240,7 +240,9 @@ def menu_gestion_raid():
 8 Split LV (snapshot or clone)
 9 Delete LV
 10 Delete VG
-11 Back to main menu
+11 add spare disk to RAID
+12 print a cat if u are fucked up
+13 Back to main menu
 ===========================================
 """)
         try:
@@ -356,9 +358,20 @@ def menu_gestion_raid():
             case 10:  # DELETE VG
                 nombre_vg = input("Enter VG name to delete: ")
                 ejecutar(f"vgremove -f {nombre_vg}")
-
             # ---------------------------------------------
-            case 11:  # EXIT
+            case 11:  # ADD SPARE DISK
+                nombre_raid = input("Enter RAID name (e.g., md0): ")
+                disco_repuesto = input("Enter spare disk device (e.g., /dev/sdd): ")
+                añadir_disco_repuesto(nombre_raid, disco_repuesto)
+            # ---------------------------------------------
+            case 12:  # PRINT A CAT IF U ARE FUCKED UP
+                print(r"""
+                  ^__^  
+                ( o.o ) 
+                 > ^ < 
+                """)
+            # ---------------------------------------------
+            case 13:  # EXIT
                 print("[INFO] Returning to main menu...")
                 break
 
@@ -439,11 +452,10 @@ def main():
                     AMOGAS = int(input(
                         "\nSelect an option:\n"
                         "1 set up a raid\n"
-                        "2 add spare disk\n"
+                        "2 Manage raid\n"
                         "3 check status\n"
                         "4 format disks\n"
-                        "5 Manage raid\n"
-                        "6 Exit\n>"
+                        "5 Exit\n>"
                         ))
                     match AMOGAS:
                         case 1:
@@ -451,9 +463,7 @@ def main():
                             menu_raid()
                         case 2:
                             ejecutar("clear")
-                            nombre_raid = input("Enter RAID name (e.g., md0): ")
-                            disco_repuesto = input("Enter spare disk device (e.g., /dev/sdd): ")
-                            añadir_disco_repuesto(nombre_raid, disco_repuesto)
+                            menu_gestion_raid()
                         case 3:
                             ejecutar("clear")
                             mostrar_status_raids()
@@ -461,11 +471,8 @@ def main():
                             ejecutar("clear")
                             formatear_discos()
                         case 5:
-                            ejecutar("clear")
-                            menu_gestion_raid()
-                        case 6:
                             print("[INFO] Exiting.")   
-                            break 
+                            break    
                         case _:
                             print("[WARN] invalido")
                 case 2:
@@ -493,3 +500,9 @@ program writed by nkv also know as nkv-alex
  > ^ <
  >cat<
 '''
+# copiable comments for program
+# [INFO]
+# [WARN]
+# [ERROR]
+# [STEP]
+# [OK]
