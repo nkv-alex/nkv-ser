@@ -71,25 +71,36 @@ def formatear_discos():
         print(f"[TASK] Processing {disco}...")
 
         # ================================================
-        # Limpieza total previa (RAID / LVM / Particiones)
+        # Limpieza total (LV → VG → PV → RAID → FS)
         # ================================================
+        print("[STEP] Unmounting any filesystems related to this disk...")
+        ejecutar(f"mount | grep {disco} | awk '{{print $3}}' | xargs -r -n1 umount -f || true")
+
+        print("[STEP] Detecting and unmounting LVM volumes on this disk...")
+        ejecutar(f"lsblk -ln -o NAME,MOUNTPOINT {disco} | awk '$2!=\"\"{{print $2}}' | xargs -r -n1 umount -f || true")
+
+        print("[STEP] Removing all Logical Volumes (LVs)...")
+        ejecutar("lvdisplay --colon 2>/dev/null | cut -d: -f1 | xargs -r -n1 lvremove -ff -y || true")
+
+        print("[STEP] Removing all Volume Groups (VGs)...")
+        ejecutar("vgdisplay --colon 2>/dev/null | cut -d: -f1 | xargs -r -n1 vgremove -ff -y || true")
+
+        print("[STEP] Removing all Physical Volumes (PVs)...")
+        ejecutar("pvdisplay --colon 2>/dev/null | cut -d: -f1 | xargs -r -n1 pvremove -ff -y || true")
+
         print("[STEP] Stopping any RAID arrays containing this disk...")
-        ejecutar(f"mdadm --stop /dev/md0 || true")
-        ejecutar(f"mdadm --stop {disco} || true")
+        ejecutar("mdadm --detail --scan | awk '{print $2}' | xargs -r -n1 mdadm --stop || true")
         ejecutar(f"mdadm --zero-superblock {disco} || true")
 
-        print("[STEP] Removing any LVM traces...")
-        ejecutar(f"pvremove -ff -y {disco} || true")
-        ejecutar(f"vgremove -ff -y {disco} || true")
-        ejecutar(f"lvremove -ff -y {disco} || true")
+        print("[STEP] Wiping all signatures and partition tables...")
+        ejecutar(f"wipefs -a {disco} || true")
+        ejecutar(f"sgdisk --zap-all {disco} || true")
 
-        print("[STEP] Wiping all signatures...")
-        ejecutar(f"wipefs -a {disco}")
-        ejecutar(f"sgdisk --zap-all {disco}")
-
-        print("[STEP] Zeroing first and last 10MB for full clean slate...")
-        ejecutar(f"dd if=/dev/zero of={disco} bs=1M count=10 conv=fdatasync status=none")
+        print("[STEP] Zeroing first and last 10MB for a full clean slate...")
+        ejecutar(f"dd if=/dev/zero of={disco} bs=1M count=10 conv=fdatasync status=none || true")
         ejecutar(f"blkdiscard {disco} || true")
+
+        print(f"[OK] Disk {disco} fully cleaned and ready for reuse.")
 
         # ================================================
         # Crear nueva estructura GPT + partición
