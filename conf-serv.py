@@ -569,7 +569,7 @@ def configurar_dns(zona="", ip_servidor=""):
     Configura un servidor DNS básico usando Bind9.
     - Crea zona directa y reversa
     - Define registros A y NS
-    - Reinicia el servicio
+    - Reinicia y habilita el servicio correcto automáticamente
 
     Args:
         zona (str): Dominio a gestionar
@@ -579,6 +579,18 @@ def configurar_dns(zona="", ip_servidor=""):
 
     # Instalar bind9 si no está instalado
     subprocess.run("apt-get update -y && apt-get install -y bind9", shell=True, check=True)
+
+    # Detectar nombre real del servicio
+    posible_servicios = ["bind9", "named"]
+    servicio = None
+    for s in posible_servicios:
+        if shutil.which(s) or subprocess.run(f"systemctl list-unit-files | grep -q '{s}.service'", shell=True).returncode == 0:
+            servicio = s
+            break
+
+    if not servicio:
+        print("[ERROR] No se pudo detectar el servicio de Bind9 en este sistema.")
+        return
 
     # Definir rutas
     named_conf_local = "/etc/bind/named.conf.local"
@@ -632,11 +644,15 @@ $TTL    604800
 {ip_last}    IN      PTR     ns.{zona}.
 """)
 
-    # Reiniciar servicio
-    subprocess.run("systemctl restart bind9 && systemctl enable bind9", shell=True, check=True)
-
-    print("[OK] DNS configurado correctamente.")
-    print(f"Zona: {zona} - Servidor: {ip_servidor}")
+    # Reiniciar y habilitar servicio detectado
+    try:
+        subprocess.run(f"systemctl daemon-reload", shell=True, check=True)
+        subprocess.run(f"systemctl restart {servicio}", shell=True, check=True)
+        subprocess.run(f"systemctl enable {servicio}", shell=True, check=True)
+        print(f"[OK] DNS configurado correctamente. Servicio usado: {servicio}")
+        print(f"Zona: {zona} - Servidor: {ip_servidor}")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] No se pudo reiniciar/habilitar el servicio: {e}")
 
 def actualizar_dns_local():
     """
@@ -859,7 +875,7 @@ def main():
             nat_configuration()
         case 5:
             zona = input("Enter the domain name (e.g., example.com): ").strip()
-            ip_servidor = input("Enter the server IP address").strip()
+            ip_servidor = input("Enter the server IP address: ").strip()
             configurar_dns(zona=zona, ip_servidor=ip_servidor)
         case 6:
             print("coming soon")

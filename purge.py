@@ -6,10 +6,6 @@ def run(cmd):
     print(f"[INFO] Ejecutando: {cmd}")
     subprocess.run(cmd, shell=True, check=False)
 
-def uninstall_debug():
-    run("apt remove -y gdb strace ltrace")
-    run("apt autoremove -y")
-    print("[OK] Entorno de depuración limpiado.")
 
 def uninstall_ssh():
     run("systemctl stop ssh")
@@ -66,7 +62,7 @@ def main():
     try:
         O = int(input(
             "\nSeleccione una opción para desinstalar:\n"
-            "1. DEBUG\n"
+            "1. salir\n"
             "2. SSH\n"
             "3. DHCP\n"
             "4. NAT\n"
@@ -86,7 +82,7 @@ def main():
     print("[INFO] Iniciando desinstalación...")
 
     match O:
-        case 1: uninstall_debug()
+        case 1: print("saliendo ")
         case 2: uninstall_ssh()
         case 3: uninstall_dhcp()
         case 4: uninstall_nat()
