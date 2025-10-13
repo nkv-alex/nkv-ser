@@ -147,9 +147,11 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
                     print(f"[listener] Acción config_dhpc ejecutada por {ip}")
                     respuesta("hecho")
 
-                case "UPDATE_HOSTS":
-                    print(f"[listener] Acción config_dhpc ejecutada por {ip}")
+                case "REQUEST_NAME":
+                    actualizar_dns_local()
+                    print(f"[listener] Acción REQUEST_NAME ejecutada por {ip}")
                     respuesta(ip_hostname_map)
+
                 case _:
                     print(f"[listener] mensaje desconocido de {ip}: '{text}'")
                     respuesta("none")
