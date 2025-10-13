@@ -855,7 +855,8 @@ def main():
         case 1:
             Z = int(input("\nSelect an option:\n"
                           "1. Test connection\n"
-                          "2. test interfaces\n" 
+                          "2. test interfaces\n"
+                          "3. update dns client list\n" 
                           "Option\n> "))
             match Z:
                 case 1:
@@ -864,7 +865,8 @@ def main():
                 case 2:
                     detect_interfaces()
                     print(interfaces)
-                
+                case 3:
+                    actualizar_dns_local()    
         case 2:
             configure_ssh()
         case 3:
@@ -885,8 +887,7 @@ def main():
             print("coming soon")
         case 9:
             send_to_hosts("UPDATE_HOSTS")
-        case 10:
-            actualizar_dns_local()
+
 
 
 
