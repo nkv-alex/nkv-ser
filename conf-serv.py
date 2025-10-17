@@ -54,12 +54,11 @@ def backup_file(path):
 
 def detect_interfaces():
 
-    """Detect interfaces with IPs, use those from JSON if they exist,
-    only ask for new ones and update the file.
+    """Detect interfaces and saves it in a json.
     """
     global interfaces
 
-    # --- 1. Load existing JSON ---
+    # Load existing JSON
     if os.path.exists(JSON_FILE):
         try:
             with open(JSON_FILE, "r") as f:
@@ -71,7 +70,7 @@ def detect_interfaces():
     else:
         interfaces = {}
 
-    # --- 2. Detect system interfaces ---
+    #Detect interfaces 
     try:
         res = subprocess.run(
             "ip -o -4 addr show | awk '{print $2,$4}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
@@ -90,7 +89,7 @@ def detect_interfaces():
 
     print("\n=== Interface detection ===")
 
-    # --- 3. Process detected interfaces ---
+    #Process detected interfaces
     updated = False
     for line in out.splitlines():
         parts = line.split()
@@ -123,7 +122,7 @@ def detect_interfaces():
         interfaces[iface] = {"ip": str(ipif), "type": t}
         updated = True
 
-    # --- 4. Save changes if there were updates ---
+    #Save changes if there were updates
     if updated:
         try:
             with open(JSON_FILE, "w") as f:
@@ -134,7 +133,7 @@ def detect_interfaces():
     else:
         print("[INFO] No changes in interfaces.")
 
-    # --- 5. Show summary ---
+    #Show summary
     intern = [k for k, v in interfaces.items() if v["type"] == "internal"]
     extern = [k for k, v in interfaces.items() if v["type"] == "external"]
     print("\nFinal summary:")
@@ -183,8 +182,8 @@ def build_netplan_yaml(existing_yaml, interfaces):
             # If no nameservers defined, add some defaults (can change)
             if "nameservers" not in iface_data:
                 iface_data["nameservers"] = {"addresses": ["8.8.8.8", "1.1.1.1"]}
-            # Do not force external gateway; if you want to add a specific route, comment here
-            # Keep any previous config (routes, mtu, etc.)
+            # Do not force external gateway
+            # Keep any previous config
             iface_data.pop("optional", None)  # normally internal not optional
         ethernets[iface] = iface_data
 
@@ -341,7 +340,7 @@ def nat_configuration():
         print("Run this script with sudo/root")
         sys.exit(1)
 
-    print("=== Automatic NAT configuration Ubuntu 22.04 ===")
+    print("Automatic NAT configuration Ubuntu 22.04")
     interfaces = detect_interfaces()
     if not interfaces:
         print("[ERROR] No interfaces detected. Aborting.")
@@ -381,24 +380,24 @@ def nat_configuration():
 # ==============================
 
 def configure_ssh():
-    print("=== Custom SSH configuration ===")
+    print("Custom SSH configuration")
 
     config_path = "/etc/ssh/sshd_config"
     backup_path = f"{config_path}.bak"
 
-    # 1️⃣ Backup
+    # Backup
     if not os.path.exists(backup_path):
         print(f"[INFO] Generating backup: {backup_path}")
         run(f"sudo cp {config_path} {backup_path}")
     else:
         print(f"[INFO] Existing backup: {backup_path}")
 
-    # 2️⃣ Requested parameters
+    # Requested parameters
     print("\n=== SSH parameters ===")
     puerto = input("SSH port (default 22): ").strip() or "22"
     root_login = input("Allow root login? (yes/no) [no]: ").strip().lower() or "no"
 
-    # 3️⃣ User detection
+    #  User detection
     print("\n=== Local user detection ===")
     res = run("awk -F: '$3 >= 1000 && $3 < 60000 {print $1}' /etc/passwd", check=False)
     users = res.stdout.strip().splitlines()
@@ -411,7 +410,7 @@ def configure_ssh():
     allowed = input("\nUsers allowed by SSH (space = all): ").strip()
     allow_users = f"AllowUsers {allowed}" if allowed else ""
 
-    # 4️⃣ Read the file
+    #  Read the file
     with open(config_path, "r") as f:
         lines = f.readlines()
 
@@ -430,7 +429,7 @@ def configure_ssh():
         if not replaced:
             lines.append(f"\n{param} {value}\n")
 
-    # 5️⃣ Apply key parameters
+    # Apply key parameters
     set_param("Port", puerto)
     set_param("PermitRootLogin", root_login)
     set_param("PasswordAuthentication", "yes")
@@ -442,7 +441,7 @@ def configure_ssh():
     if allow_users:
         set_param("AllowUsers", allowed)
 
-    # 6️⃣ Save
+    # Save
     tmp_file = "/tmp/sshd_config_tmp"
     with open(tmp_file, "w") as f:
         f.writelines(lines)
@@ -450,7 +449,7 @@ def configure_ssh():
     run(f"sudo mv {tmp_file} {config_path}")
     run("sudo chmod 600 /etc/ssh/sshd_config")
 
-    # 7️⃣ Reiniciar servicio
+    # Reiniciar servicio
     print("\n[INFO] Aplicando cambios y reiniciando SSH...")
     run("sudo systemctl enable ssh", check=False)
     run("sudo systemctl restart ssh", check=False)
@@ -533,18 +532,18 @@ def configure_dhcp():
     # Generate dhcpd.conf configuration
     print("[INFO] Writing DHCP configuration...")
     dhcp_config = f"""
-# Generated by conf-serv.py
-default-lease-time 600;
-max-lease-time 7200;
-authoritative;
+        # Generated by conf-serv.py
+        default-lease-time 600;
+        max-lease-time 7200;
+        authoritative;
 
-subnet {red.network_address} netmask {red.netmask} {{
-  range {rango_ini} {rango_fin};
-  option routers {gateway};
-  option subnet-mask {red.netmask};
-  option domain-name-servers {dns};
-}}
-"""
+        subnet {red.network_address} netmask {red.netmask} {{
+        range {rango_ini} {rango_fin};
+        option routers {gateway};
+        option subnet-mask {red.netmask};
+        option domain-name-servers {dns};
+        }}
+        """
     with open(dhcp_conf, "w") as f:
         f.write(dhcp_config.strip() + "\n")
 
@@ -599,15 +598,15 @@ def configurar_dns(zona="", ip_servidor=""):
 
     # Crear configuración de zona directa y reversa
     zona_conf = f"""
-zone "{zona}" {{
-    type master;
-    file "{zona_directa}";
-}};
-zone "{'.'.join(ip_servidor.split('.')[:3])}.in-addr.arpa" {{
-    type master;
-    file "{zona_reversa}";
-}};
-"""
+    zone "{zona}" {{
+        type master;
+        file "{zona_directa}";
+    }};
+    zone "{'.'.join(ip_servidor.split('.')[:3])}.in-addr.arpa" {{
+        type master;
+        file "{zona_reversa}";
+    }};
+    """
 
     with open(named_conf_local, "a") as f:
         f.write(zona_conf)
@@ -615,34 +614,34 @@ zone "{'.'.join(ip_servidor.split('.')[:3])}.in-addr.arpa" {{
     # Crear archivo de zona directa
     with open(zona_directa, "w") as f:
         f.write(f"""
-$TTL    604800
-@       IN      SOA     ns.{zona}. admin.{zona}. (
-                        2         ; Serial
-                        604800     ; Refresh
-                        86400      ; Retry
-                        2419200    ; Expire
-                        604800 )   ; Negative Cache TTL
-;
-@       IN      NS      ns.{zona}.
-ns      IN      A       {ip_servidor}
-@       IN      A       {ip_servidor}
-""")
+    $TTL    604800
+    @       IN      SOA     ns.{zona}. admin.{zona}. (
+                            2         ; Serial
+                            604800     ; Refresh
+                            86400      ; Retry
+                            2419200    ; Expire
+                            604800 )   ; Negative Cache TTL
+    ;
+    @       IN      NS      ns.{zona}.
+    ns      IN      A       {ip_servidor}
+    @       IN      A       {ip_servidor}
+    """)
 
     # Crear zona reversa
     ip_last = ip_servidor.split('.')[-1]
     with open(zona_reversa, "w") as f:
         f.write(f"""
-$TTL    604800
-@       IN      SOA     ns.{zona}. admin.{zona}. (
-                        2
-                        604800
-                        86400
-                        2419200
-                        604800 )
-;
-@       IN      NS      ns.{zona}.
-{ip_last}    IN      PTR     ns.{zona}.
-""")
+    $TTL    604800
+    @       IN      SOA     ns.{zona}. admin.{zona}. (
+                            2
+                            604800
+                            86400
+                            2419200
+                            604800 )
+    ;
+    @       IN      NS      ns.{zona}.
+    {ip_last}    IN      PTR     ns.{zona}.
+    """)
 
     # Reiniciar y habilitar servicio detectado
     try:
@@ -666,7 +665,7 @@ def actualizar_dns_local():
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
     hosts_cache = {}
 
-    # 1️⃣ Cargar cache existente
+    # Cargar cache existente
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE) as f:
             for line in f:
@@ -675,10 +674,10 @@ def actualizar_dns_local():
                     ip, host = line.split("=")
                     hosts_cache[ip] = host
 
-    # 2️⃣ Enviar broadcast para solicitar nombres
+    # Enviar broadcast para solicitar nombres
     send_to_hosts("REQUEST_NAME")
 
-    # 3️⃣ Escuchar respuestas UDP (formato IP?=HOSTNAME)
+    # Escuchar respuestas UDP (formato IP?=HOSTNAME)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("", UDP_PORT))
     sock.settimeout(5.0)
@@ -697,12 +696,12 @@ def actualizar_dns_local():
     finally:
         sock.close()
 
-    # 4️⃣ Guardar cache actualizado
+    # Guardar cache actualizado
     with open(CACHE_FILE, "w") as f:
         for ip, host in hosts_cache.items():
             f.write(f"{ip}={host}\n")
 
-    # 5️⃣ Actualizar archivo de zona DNS
+    # Actualizar archivo de zona DNS
     if not os.path.exists(DNS_FILE):
         print(f"[ERROR] Archivo de zona DNS no encontrado: {DNS_FILE}")
         return
@@ -718,7 +717,7 @@ def actualizar_dns_local():
     for ip, host in hosts_cache.items():
         lines.append(f"{host}\tIN\tA\t{ip}\n")
 
-    # 6️⃣ Guardar y reiniciar servicio DNS
+    #  Guardar y reiniciar servicio DNS
     with open(DNS_FILE, "w") as f:
         f.writelines(lines)
 
@@ -805,7 +804,7 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
                 break
 
     if not discovered_total:
-        print("[discover] No listeners detected on internal interfaces.")
+        print("[discover] No listeners detected.")
         return {}
 
     print(f"[discover] Total {len(discovered_total)} hosts found:")
@@ -816,7 +815,7 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
 
     if send:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(2.0)  # Maximum wait time for response
+        sock.settimeout(2.0)  
         for ip in discovered_total.keys():
             try:
                 sock.sendto(payload.encode(), (ip, port))
