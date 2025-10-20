@@ -444,32 +444,75 @@ def menu_raid():
 # ==============================
 
 def quotas_create():
-    quotas_installed = input("[INFO] this machine have quotas installed? Y/N: ")
-    
-    if quotas_installed.lower() != 'y':
-        print("[INFO] Installing quotas package...")
-        ejecutar("apt-get update && apt-get install -y quota")
-    
-    ejecutar("clear")
-    ejecutar("lsblk -e7")
-    punto_montaje = input("Enter the mount point to enable quotas (e.g., /mnt/data): ").strip()
+    quotas_installed = input("[INFO] Does this machine have quotas installed? (Y/N): ").strip().lower()
 
-    # Verificar si el punto de montaje existe
+    if quotas_installed != 'y':
+        print("[INFO] Installing quota package...")
+        ejecutar("apt-get update && apt-get install -y quota")
+
+    # --- NUEVO BLOQUE: mostrar líneas de /etc/fstab ---
+    print("\n[INFO] Analyzing /etc/fstab for available mount points...\n")
+    with open("/etc/fstab", "r") as f:
+        lines = [l.strip() for l in f.readlines() if l.strip() and not l.strip().startswith("#")]
+
+    valid_mounts = []
+    for idx, line in enumerate(lines):
+        parts = line.split()
+        if len(parts) >= 2:
+            device, mount = parts[0], parts[1]
+            valid_mounts.append((idx, device, mount))
+            print(f"[{idx}] DEVICE: {device} | MOUNT: {mount}")
+
+    if not valid_mounts:
+        print("[WARN] No valid entries found in /etc/fstab.")
+    else:
+        print("\n[INFO] Select one of the listed mount points, or type 'new' to create a new one.")
+    
+    choice = input("Mount point index or 'new': ").strip()
+
+    # --- Si el usuario quiere crear un nuevo punto de montaje ---
+    if choice.lower() == "new":
+        ejecutar("clear")
+        ejecutar("lsblk -e7")
+        nuevo_punto = input("Enter new mount point (e.g., /mnt/data): ").strip()
+        device = input("Enter device (e.g., /dev/sdb1): ").strip()
+        
+        os.makedirs(nuevo_punto, exist_ok=True)
+        with open("/etc/fstab", "a") as f:
+            f.write(f"{device}\t{nuevo_punto}\text4\tdefaults\t0\t2\n")
+        ejecutar(f"mount -a")
+        punto_montaje = nuevo_punto
+    else:
+        try:
+            idx = int(choice)
+            punto_montaje = valid_mounts[idx][2]
+        except (ValueError, IndexError):
+            print("[ERROR] Invalid selection.")
+            return
+
+    # --- Verificar si el punto de montaje existe ---
     if not os.path.ismount(punto_montaje):
         print(f"[ERROR] {punto_montaje} is not a valid mount point.")
         return
 
-    # Modificar /etc/fstab para habilitar cuotas
-    print("[INFO] Modifying /etc/fstab to enable quotas...")
+    # --- Modificar /etc/fstab para habilitar cuotas ---
+    print("\n[INFO] Enabling quotas in /etc/fstab...")
     try:
         with open("/etc/fstab", "r") as f:
             lineas = f.readlines()
 
         with open("/etc/fstab", "w") as f:
             for linea in lineas:
-                if punto_montaje in linea:
-                    if "usrquota" not in linea and "grpquota" not in linea:
-                        linea = linea.rstrip() + " usrquota,grpquota\n"
+                if punto_montaje in linea and "usrquota" not in linea and "grpquota" not in linea:
+                    campos = linea.split()
+                    if len(campos) >= 4:
+                        opciones = campos[3]
+                        if "defaults" in opciones:
+                            opciones = opciones.replace("defaults", "defaults,usrquota,grpquota")
+                        else:
+                            opciones += ",usrquota,grpquota"
+                        campos[3] = opciones
+                        linea = "\t".join(campos) + "\n"
                 f.write(linea)
 
         print("[INFO] Remounting filesystem with quota options...")
@@ -479,10 +522,12 @@ def quotas_create():
         ejecutar(f"quotacheck -cgu {punto_montaje}")
         ejecutar(f"quotaon {punto_montaje}")
 
-        print("[OK] Disk quotas successfully enabled on {punto_montaje}.")
+        print(f"[OK] Disk quotas successfully enabled on {punto_montaje}.")
+
     except Exception as e:
         print(f"[ERROR] Failed to configure quotas: {e}")
 
+        
 # ==============================
 # quotas config
 # ==============================
