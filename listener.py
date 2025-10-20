@@ -45,6 +45,7 @@ def respuesta(mensaje: str):
 
 def forzar_dhcp():
     try:
+        # --- Detección de interfaces activas ---
         res = subprocess.run(
             "ip -o -4 addr show | awk '{print $2}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' || true",
             shell=True, capture_output=True, text=True, check=False
@@ -54,6 +55,13 @@ def forzar_dhcp():
             print("[WARN] No se detectaron interfaces activas.")
             return
 
+        # --- Detección del renderer disponible ---
+        renderer = "systemd-networkd"
+        if shutil.which("NetworkManager"):
+            renderer = "NetworkManager"
+        print(f"[INFO] Renderer detectado: {renderer}")
+
+        # --- Validar existencia de Netplan ---
         netplan_dir = "/etc/netplan"
         if not os.path.isdir(netplan_dir):
             print(f"[ERROR] No existe {netplan_dir}")
@@ -64,13 +72,14 @@ def forzar_dhcp():
             print("[WARN] No hay archivos YAML de Netplan.")
             return
 
+        # --- Reescribir configuración de red ---
         for file_path in yaml_files:
             print(f"[INFO] Reescribiendo {file_path} ...")
 
             data = {
                 "network": {
                     "version": 2,
-                    "renderer": "NetworkManager",
+                    "renderer": renderer,
                     "ethernets": {}
                 }
             }
@@ -84,20 +93,26 @@ def forzar_dhcp():
                     }
                 }
 
-            # Forzar escritura con sudo
+            # Escritura temporal
             tmp_file = f"/tmp/{os.path.basename(file_path)}"
             with open(tmp_file, "w") as f:
                 yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
 
             subprocess.run(f"sudo cp {tmp_file} {file_path}", shell=True, check=True)
-            subprocess.run(f"sudo chmod 744 {file_path}", shell=True, check=False)
+            subprocess.run(f"sudo chmod 644 {file_path}", shell=True, check=False)
 
+        # --- Aplicar cambios ---
         subprocess.run("sudo netplan apply", shell=True, check=True)
-        print(f"[OK] Interfaces {interfaces} configuradas vía DHCP (servidor 192.168.1.10)")
+        print(f"[OK] Interfaces {interfaces} configuradas vía DHCP con {renderer}")
+
+        # --- Reiniciar servicio según renderer ---
+        if renderer == "NetworkManager":
+            subprocess.run("sudo systemctl restart NetworkManager", shell=True, check=False)
+        else:
+            subprocess.run("sudo systemctl restart systemd-networkd", shell=True, check=False)
 
     except Exception as e:
         print(f"[ERROR] {e}")
-
 def actualizar_dns_local():
     """
     Stores the mapping in the format IP?=HOSTNAME in a global variable.
