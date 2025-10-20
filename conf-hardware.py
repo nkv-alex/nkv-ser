@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 import os
 import subprocess
-
+import json
 # ==============================
 # System Utilities
 # ==============================
+
+
+
+
+
+
+
 
 def ejecutar(cmd):
     """Execute system command and return status."""
@@ -151,6 +158,11 @@ def safe_int_input(prompt):
         if raw.isdigit():
             return int(raw)
         print("[WARN] Invalid input. Please enter a numeric value.")
+
+# ==============================
+# System variables
+# ==============================
+punto_montaje = ""
 
 
 
@@ -434,6 +446,127 @@ def menu_raid():
     print("[INFO] RAID and all LVM structures successfully configured.")
 
 # ==============================
+# Quotas Config Menu
+# ==============================
+
+def quotas_create():
+    quotas_installed = input("[INFO] this machine have quotas installed? Y/N: ")
+    
+    if quotas_installed.lower() != 'y':
+        print("[INFO] Installing quotas package...")
+        ejecutar("apt-get update && apt-get install -y quota")
+    
+    ejecutar("clear")
+    ejecutar("lsblk -e7")
+    punto_montaje = input("Enter the mount point to enable quotas (e.g., /mnt/data): ").strip()
+
+    # Verificar si el punto de montaje existe
+    if not os.path.ismount(punto_montaje):
+        print(f"[ERROR] {punto_montaje} is not a valid mount point.")
+        return
+
+    # Modificar /etc/fstab para habilitar cuotas
+    print("[INFO] Modifying /etc/fstab to enable quotas...")
+    try:
+        with open("/etc/fstab", "r") as f:
+            lineas = f.readlines()
+
+        with open("/etc/fstab", "w") as f:
+            for linea in lineas:
+                if punto_montaje in linea:
+                    if "usrquota" not in linea and "grpquota" not in linea:
+                        linea = linea.rstrip() + " usrquota,grpquota\n"
+                f.write(linea)
+
+        print("[INFO] Remounting filesystem with quota options...")
+        ejecutar(f"mount -o remount {punto_montaje}")
+
+        print("[INFO] Creating quota files...")
+        ejecutar(f"quotacheck -cgu {punto_montaje}")
+        ejecutar(f"quotaon {punto_montaje}")
+
+        print("[OK] Disk quotas successfully enabled on {punto_montaje}.")
+    except Exception as e:
+        print(f"[ERROR] Failed to configure quotas: {e}")
+
+# ==============================
+# quotas config
+# ==============================
+
+def quotas_config():
+    user_or_group = input("""
+    ============== QUOTAS CONFIG MENU ================
+    1 Configure user quota
+    2 Configure group quota
+    3 Set gace period
+    4 Set warning limit
+    20 Back to main menu
+    ================================================
+    """)
+    match user_or_group:
+        case "1":
+            user = input("Enter username to configure quota: ")
+            soft_limit = input("Enter soft limit (e.g., 500M): ")
+            hard_limit = input("Enter hard limit (e.g., 1G): ")
+            ejecutar(f"setquota -u {user} {soft_limit} {hard_limit} 0 0 /")
+        case "2":
+            group = input("Enter group name to configure quota: ")
+            soft_limit = input("Enter soft limit (e.g., 500M): ")
+            hard_limit = input("Enter hard limit (e.g., 1G): ")
+            ejecutar(f"setquota -g {group} {soft_limit} {hard_limit} 0 0 /")
+        case "3":
+            grace_period = input("Enter grace period (e.g., 7days): ")
+            ejecutar(f"edquota -t {grace_period}")
+        case "4":
+            user_or_group = input("Configure warning limit for user (u) or group (g)?: ").lower()
+            name = input("Enter username/group name: ")
+            warning_limit = input("Enter warning limit (e.g., 80%): ")
+            if user_or_group == "u":
+                ejecutar(f"setquota -u {name} 0 0 0 0 / -W {warning_limit}")
+            elif user_or_group == "g":
+                ejecutar(f"setquota -g {name} 0 0 0 0 / -W {warning_limit}")
+            else:
+                print("[WARN] Invalid selection.")
+        case "20":
+            print("[INFO] Returning to main menu.")
+        case _:
+            print("[WARN] Invalid option.")
+
+def quotas_add():
+    x = int(input("""
+    ============== QUOTAS MENU ================
+    1 Add user quota
+    2 Add group quota
+    3 Delete user quota
+    4 Delete group quota
+    5 Show user quotas
+    6 Show group quotas
+    7 Back to main menu
+    ===========================================
+    """))
+    match x:
+        case 1:
+            user = input("Enter username to set quota: ")
+            ejecutar(f"edquota -u {user}")
+        case 2:
+            group = input("Enter group name to set quota: ")
+            ejecutar(f"edquota -g {group}")
+        case 3:
+            user = input("Enter username to delete quota: ")
+            ejecutar(f"quotaoff -u {user}")
+        case 4:
+            group = input("Enter group name to delete quota: ")
+            ejecutar(f"quotaoff -g {group}")
+        case 5:
+            ejecutar("repquota -u /")
+        case 6:
+            ejecutar("repquota -g /")
+        case 7:
+            print("[INFO] Returning to main menu.")
+        case _:
+            print("[WARN] Invalid option.")
+
+# ==============================
 # Main Menu
 # ==============================
 
@@ -443,7 +576,7 @@ def main():
             O = int(input(
                 "\nSelect an option:\n"
                 "1 RAID Configuration\n"
-                "2 coming soon\n"
+                "2 quotas config\n"
                 "3 Exit\n> "
             ))
 
@@ -476,7 +609,27 @@ def main():
                         case _:
                             print("[WARN] invalido")
                 case 2:
-                    print("[INFO] Disk management module (coming soon).")
+                    Z = int(input(
+                        "\nSelect an option:\n"
+                        "1 set up quotas\n"
+                        "2 add users/groups\n"
+                        "3 config quota\n"
+                        "4 exit\n> "
+                    ))
+                    match Z:
+                        case 1:
+                            ejecutar("clear")
+                            quotas_create()
+                        case 2:
+                            ejecutar("clear")
+                            quotas_config()
+                        case 3:
+                            quotas_add()
+                        case 4:
+                            print("[INFO] Exiting.")
+                            break
+                        case _:
+                            print("[WARN] Invalid option.")
                 case 3:
                     print("[INFO] Exiting.")
                     break
