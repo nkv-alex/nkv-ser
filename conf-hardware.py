@@ -153,10 +153,22 @@ def safe_int_input(prompt):
             return int(raw)
         print("[WARN] Invalid input. Please enter a numeric value.")
 
+def convertir_a_kb(valor):
+    valor = valor.upper()
+    if valor.endswith("K"):
+        return int(valor[:-1])
+    elif valor.endswith("M"):
+        return int(float(valor[:-1]) * 1024)
+    elif valor.endswith("G"):
+        return int(float(valor[:-1]) * 1024 * 1024)
+    else:
+        return int(valor)
 # ==============================
 # System variables
 # ==============================
-punto_montaje = ""
+punto_montaje = {
+    "mount":""
+}
 
 
 
@@ -444,58 +456,78 @@ def menu_raid():
 # ==============================
 
 def quotas_create():
-    quotas_installed = input("[INFO] Does this machine have quotas installed? (Y/N): ").strip().lower()
-
-    if quotas_installed != 'y':
-        print("[INFO] Installing quota package...")
-        ejecutar("apt-get update && apt-get install -y quota")
-
-    # --- NUEVO BLOQUE: mostrar líneas de /etc/fstab ---
-    print("\n[INFO] Analyzing /etc/fstab for available mount points...\n")
-    with open("/etc/fstab", "r") as f:
-        lines = [l.strip() for l in f.readlines() if l.strip() and not l.strip().startswith("#")]
-
-    valid_mounts = []
-    for idx, line in enumerate(lines):
-        parts = line.split()
-        if len(parts) >= 2:
-            device, mount = parts[0], parts[1]
-            valid_mounts.append((idx, device, mount))
-            print(f"[{idx}] DEVICE: {device} | MOUNT: {mount}")
-
-    if not valid_mounts:
-        print("[WARN] No valid entries found in /etc/fstab.")
-    else:
-        print("\n[INFO] Select one of the listed mount points, or type 'new' to create a new one.")
-    
-    choice = input("Mount point index or 'new': ").strip()
-
-    # --- Si el usuario quiere crear un nuevo punto de montaje ---
-    if choice.lower() == "new":
-        ejecutar("clear")
-        ejecutar("lsblk -e7")
-        nuevo_punto = input("Enter new mount point (e.g., /mnt/data): ").strip()
-        device = input("Enter device (e.g., /dev/sdb1): ").strip()
-        
-        os.makedirs(nuevo_punto, exist_ok=True)
-        with open("/etc/fstab", "a") as f:
-            f.write(f"{device}\t{nuevo_punto}\text4\tdefaults\t0\t2\n")
-        ejecutar(f"mount -a")
-        punto_montaje = nuevo_punto
-    else:
+    config_file = "config_hardware.json"
+    punto_montaje = None
+    #leer el punto de montaje del JSON
+    if os.path.exists(config_file):
         try:
-            idx = int(choice)
-            punto_montaje = valid_mounts[idx][2]
-        except (ValueError, IndexError):
-            print("[ERROR] Invalid selection.")
-            return
+            with open(config_file, "r") as f:
+                data = json.load(f)
+                punto_montaje = data.get("mount", "").strip()
+                if punto_montaje:
+                    print(f"[INFO] Mount point loaded from {config_file}: {punto_montaje}")
+        except json.JSONDecodeError:
+            print(f"[WARN] Invalid JSON format in {config_file}, ignoring file.")
+    else:
+        print("[INFO] No config_hardware.json found. Manual selection required.")
 
-    # --- Verificar si el punto de montaje existe ---
+    #Si json vacio, pedirlo manualmente
+    if not punto_montaje or not os.path.exists(punto_montaje):
+        quotas_installed = input("[INFO] Does this machine have quotas installed? (Y/N): ").strip().lower()
+
+        if quotas_installed != 'y':
+            print("[INFO] Installing quota package...")
+            ejecutar("apt-get update && apt-get install -y quota")
+
+        print("\n[INFO] Analyzing /etc/fstab for available mount points...\n")
+        with open("/etc/fstab", "r") as f:
+            lines = [l.strip() for l in f.readlines() if l.strip() and not l.strip().startswith("#")]
+
+        valid_mounts = []
+        for idx, line in enumerate(lines):
+            parts = line.split()
+            if len(parts) >= 2:
+                device, mount = parts[0], parts[1]
+                valid_mounts.append((idx, device, mount))
+                print(f"[{idx}] DEVICE: {device} | MOUNT: {mount}")
+
+        if not valid_mounts:
+            print("[WARN] No valid entries found in /etc/fstab.")
+        else:
+            print("\n[INFO] Select one of the listed mount points, or type 'new' to create a new one.")
+        
+        choice = input("Mount point index or 'new': ").strip()
+
+        if choice.lower() == "new":
+            ejecutar("clear")
+            ejecutar("lsblk -e7")
+            nuevo_punto = input("Enter new mount point (e.g., /mnt/data): ").strip()
+            device = input("Enter device (e.g., /dev/sdb1): ").strip()
+            
+            os.makedirs(nuevo_punto, exist_ok=True)
+            with open("/etc/fstab", "a") as f:
+                f.write(f"{device}\t{nuevo_punto}\text4\tdefaults\t0\t2\n")
+            ejecutar(f"mount -a")
+            punto_montaje = nuevo_punto
+        else:
+            try:
+                idx = int(choice)
+                punto_montaje = valid_mounts[idx][2]
+            except (ValueError, IndexError):
+                print("[ERROR] Invalid selection.")
+                return
+
+        # Guardar punto de montaje en config_hardware.json
+        with open(config_file, "w") as f:
+            json.dump({"mount": punto_montaje}, f, indent=4)
+            print(f"[OK] Saved mount point to {config_file}")
+
+    
+    #Validar y habilitar cuotas
     if not os.path.ismount(punto_montaje):
         print(f"[ERROR] {punto_montaje} is not a valid mount point.")
         return
 
-    # --- Modificar /etc/fstab para habilitar cuotas ---
     print("\n[INFO] Enabling quotas in /etc/fstab...")
     try:
         with open("/etc/fstab", "r") as f:
@@ -527,7 +559,6 @@ def quotas_create():
     except Exception as e:
         print(f"[ERROR] Failed to configure quotas: {e}")
 
-        
 # ==============================
 # quotas config
 # ==============================
@@ -537,71 +568,94 @@ def quotas_config():
     ============== QUOTAS CONFIG MENU ================
     1 Configure user quota
     2 Configure group quota
-    3 Set gace period
-    4 Set warning limit
+    3 Set grace period
     20 Back to main menu
     ================================================
-    """)
+    """).strip()
+
     match user_or_group:
         case "1":
-            user = input("Enter username to configure quota: ")
-            soft_limit = input("Enter soft limit (e.g., 500M): ")
-            hard_limit = input("Enter hard limit (e.g., 1G): ")
-            ejecutar(f"setquota -u {user} {soft_limit} {hard_limit} 0 0 /")
+            user = input("Enter username to configure quota: ").strip()
+            soft_limit = convertir_a_kb(input("Enter soft limit (e.g., 500M): ").strip())
+            hard_limit = convertir_a_kb(input("Enter hard limit (e.g., 1G): ").strip())
+            mount_point = input("Enter mount point (default /): ").strip() or "/"
+            ejecutar(f"setquota -u {user} {soft_limit} {hard_limit} 0 0 {mount_point}")
+            print(f"[OK] User quota applied for {user} on {mount_point}")
+        
         case "2":
-            group = input("Enter group name to configure quota: ")
-            soft_limit = input("Enter soft limit (e.g., 500M): ")
-            hard_limit = input("Enter hard limit (e.g., 1G): ")
-            ejecutar(f"setquota -g {group} {soft_limit} {hard_limit} 0 0 /")
+            group = input("Enter group name to configure quota: ").strip()
+            soft_limit = convertir_a_kb(input("Enter soft limit (e.g., 500M): ").strip())
+            hard_limit = convertir_a_kb(input("Enter hard limit (e.g., 1G): ").strip())
+            mount_point = input("Enter mount point (default /): ").strip() or "/"
+            ejecutar(f"setquota -g {group} {soft_limit} {hard_limit} 0 0 {mount_point}")
+            print(f"[OK] Group quota applied for {group} on {mount_point}")
+
         case "3":
-            grace_period = input("Enter grace period (e.g., 7days): ")
-            ejecutar(f"edquota -t {grace_period}")
-        case "4":
-            user_or_group = input("Configure warning limit for user (u) or group (g)?: ").lower()
-            name = input("Enter username/group name: ")
-            warning_limit = input("Enter warning limit (e.g., 80%): ")
-            if user_or_group == "u":
-                ejecutar(f"setquota -u {name} 0 0 0 0 / -W {warning_limit}")
-            elif user_or_group == "g":
-                ejecutar(f"setquota -g {name} 0 0 0 0 / -W {warning_limit}")
-            else:
-                print("[WARN] Invalid selection.")
+            grace_days = input("Enter grace period in days (e.g., 7): ").strip()
+            seconds = int(grace_days) * 86400
+            mount_point = input("Enter mount point (default /): ").strip() or "/"
+            ejecutar(f"setquota -t {seconds} {seconds} {mount_point}")
+            print(f"[OK] Grace period set to {grace_days} days for {mount_point}")
+
         case "20":
             print("[INFO] Returning to main menu.")
+
         case _:
             print("[WARN] Invalid option.")
 
 def quotas_add():
-    x = int(input("""
-    ============== QUOTAS MENU ================
-    1 Add user quota
-    2 Add group quota
-    3 Delete user quota
-    4 Delete group quota
-    5 Show user quotas
-    6 Show group quotas
-    7 Back to main menu
-    ===========================================
-    """))
+    try:
+        x = int(input("""
+        ============== QUOTAS MENU ================
+        1 Add user quota
+        2 Add group quota 
+        3 Delete user quota 
+        4 Delete group quota 
+        5 Show user quotas
+        6 Show group quotas
+        7 Back to main menu
+        ===========================================
+        """).strip())
+    except ValueError:
+        print("[WARN] Invalid numeric input.")
+        return
+
     match x:
         case 1:
-            user = input("Enter username to set quota: ")
+            user = input("Enter username to set quota: ").strip()
+            print("[INFO] Opening quota editor (requires root privileges)...")
             ejecutar(f"edquota -u {user}")
+
         case 2:
-            group = input("Enter group name to set quota: ")
+            group = input("Enter group name to set quota: ").strip()
+            print("[INFO] Opening group quota editor (requires root privileges)...")
             ejecutar(f"edquota -g {group}")
+
         case 3:
-            user = input("Enter username to delete quota: ")
-            ejecutar(f"quotaoff -u {user}")
+            user = input("Enter username to delete quota: ").strip()
+            mount_point = input("Enter mount point (default /): ").strip() or "/"
+            print(f"[INFO] Resetting quota for user {user} on {mount_point}...")
+            ejecutar(f"setquota -u {user} 0 0 0 0 {mount_point}")
+            print(f"[OK] User quota reset for {user}.")
+
         case 4:
-            group = input("Enter group name to delete quota: ")
-            ejecutar(f"quotaoff -g {group}")
+            group = input("Enter group name to delete quota: ").strip()
+            mount_point = input("Enter mount point (default /): ").strip() or "/"
+            print(f"[INFO] Resetting quota for group {group} on {mount_point}...")
+            ejecutar(f"setquota -g {group} 0 0 0 0 {mount_point}")
+            print(f"[OK] Group quota reset for {group}.")
+
         case 5:
-            ejecutar("repquota -u /")
+            mount_point = input("Enter mount point to display (default /): ").strip() or "/"
+            ejecutar(f"repquota -u {mount_point}")
+
         case 6:
-            ejecutar("repquota -g /")
+            mount_point = input("Enter mount point to display (default /): ").strip() or "/"
+            ejecutar(f"repquota -g {mount_point}")
+
         case 7:
             print("[INFO] Returning to main menu.")
+
         case _:
             print("[WARN] Invalid option.")
 
@@ -659,9 +713,12 @@ def main():
                         case 1:
                             ejecutar("clear")
                             quotas_create()
+                            with open("config_hardware.json", "w") as f:
+                                json.dump(punto_montaje, f, indent=4)
                         case 2:
                             ejecutar("clear")
                             quotas_config()
+
                         case 3:
                             quotas_add()
                         case 4:
