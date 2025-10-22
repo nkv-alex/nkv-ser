@@ -306,16 +306,17 @@ def save_iptables_rules(rules_text):
     print(f"[INFO] iptables rules saved in {IPTABLES_RULES_V4}")
 
 def try_enable_persistent():
-    # Only for Debian/Ubuntu: try to install iptables-persistent
-    try:
-        run("which apt >/dev/null 2>&1", check=True)
-        print("[INFO] Trying to install iptables-persistent (if missing)...")
-        run("DEBIAN_FRONTEND=noninteractive apt-get update -y", check=False)
-        run("DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent", check=False)
-        run("systemctl enable netfilter-persistent.service", check=False)
-        run("systemctl restart netfilter-persistent.service", check=False)
-    except Exception:
-        print("[WARN] Could not enable iptables-persistent automatically.")
+    asking = input("Do you want to try to enable iptables-persistent for rule persistence? (y/n) [y]: ").strip().lower()
+    if asking == "y":
+        try:
+            run("which apt >/dev/null 2>&1", check=True)
+            print("[INFO] Trying to install iptables-persistent (if missing)...")
+            run("DEBIAN_FRONTEND=noninteractive apt-get update -y", check=False)
+            run("DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent", check=False)
+            run("systemctl enable netfilter-persistent.service", check=False)
+            run("systemctl restart netfilter-persistent.service", check=False)
+        except Exception:
+            print("[WARN] Could not enable iptables-persistent automatically.")
 
 def apply_netplan():
     try:
