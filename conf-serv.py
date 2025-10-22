@@ -859,6 +859,61 @@ def configure_mail():
         print("[ERROR] Postfix could not start. Check logs in /var/log/mail.log")
 
 # ==============================
+# CONFIG NFS
+# ==============================
+
+
+def configure_nfs():
+    print("=== Automatic NFS configuration (Network File System) ===")
+
+    # Instalación de paquetes
+    print("[INFO] Installing NFS server packages...")
+    run("apt update -y && apt install -y nfs-kernel-server", check=False)
+
+    exports = "/etc/exports"
+    backup_file(exports)
+
+    # Parámetros de configuración
+    print("\n[STEP] Gathering configuration parameters...")
+    share_name = input("Name of the NFS shared folder [default shared]: ").strip() or "shared"
+    share_path = f"/srv/nfs/{share_name}"
+    subnet = input("Allowed subnet (e.g. 192.168.1.0/24) [default 192.168.1.0/24]: ").strip() or "192.168.1.0/24"
+    readonly = input("Read only? (y/n) [n]: ").strip().lower() or "n"
+
+    # Crear carpeta y permisos
+    os.makedirs(share_path, exist_ok=True)
+    run(f"chmod -R 777 {share_path}", check=False)
+
+    print("[STEP] Updating exports configuration...")
+    with open(exports, "r") as f:
+        lines = f.readlines()
+
+    # Eliminar entradas previas con la misma ruta
+    lines = [l for l in lines if not l.startswith(share_path)]
+
+    # Añadir la nueva exportación
+    export_opts = "ro,sync,no_subtree_check" if readonly == "y" else "rw,sync,no_subtree_check"
+    lines.append(f"{share_path} {subnet}({export_opts})\n")
+
+    with open(exports, "w") as f:
+        f.writelines(lines)
+
+    # Aplicar configuración
+    print("[INFO] Applying export configuration...")
+    run("exportfs -ra", check=False)
+    run("systemctl enable nfs-kernel-server", check=False)
+    run("systemctl restart nfs-kernel-server", check=False)
+
+    status = run("systemctl is-active nfs-kernel-server", check=False)
+    if "active" in status.stdout:
+        print(f"[OK] NFS server running successfully.")
+        print(f"[INFO] Shared path: {share_path}")
+        print(f"[INFO] Allowed subnet: {subnet}")
+        print(f"[INFO] Mount example (client): mount {run('hostname -I | awk {print $1}', check=False).stdout.strip()}:{share_path} /mnt")
+    else:
+        print("[ERROR] NFS service failed to start. Check journalctl -u nfs-kernel-server.")
+
+# ==============================
 # COMMUNICATION FUNCTIONS
 # ==============================
 
@@ -979,6 +1034,7 @@ def main():
         "7. configure https\n" 
         "8. configure mail\n"
         "9. update local-hosts\n"
+        "10. Configure NFS\n"
         "Option\n> "))
     
 
@@ -1018,8 +1074,11 @@ def main():
             configure_mail()
         case 9:
             send_to_hosts("UPDATE_HOSTS")
-
-
+        case 10:
+            run("clear")
+            configure_nfs()
+        case _:
+            print("Invalid option.")
 
 
 
