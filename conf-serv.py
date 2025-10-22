@@ -724,7 +724,139 @@ def actualizar_dns_local():
 
     subprocess.run("systemctl restart bind9", shell=True, check=False)
     print("[OK] DNS local actualizado y reiniciado correctamente.")
+# ==============================
+# CONFIG FTP
+# ==============================
+def configure_ftp():
+    run("clear")
+    print("=== Automatic FTP configuration (vsftpd) ===")
+    
 
+    # Install
+    res = input("Is vsftpd installed? (y/n) [y]: ").strip().lower() or "y"
+    if res == "y":
+        run("apt update -y", check=False)
+        run("apt install -y vsftpd", check=False)
+
+    conf = "/etc/vsftpd.conf"
+    backup_file(conf)
+
+    print("\n[STEP] Customizing vsftpd configuration...")
+    with open(conf, "r") as f:
+        lines = f.readlines()
+
+    def set_param(param, value):
+        found = False
+        for i, l in enumerate(lines):
+            if l.startswith(param):
+                lines[i] = f"{param}={value}\n"
+                found = True
+                break
+        if not found:
+            lines.append(f"{param}={value}\n")
+
+    set_param("anonymous_enable", "NO")
+    set_param("local_enable", "YES")
+    set_param("write_enable", "YES")
+    set_param("chroot_local_user", "YES")
+    set_param("allow_writeable_chroot", "YES")
+    set_param("listen", "YES")
+    set_param("listen_ipv6", "NO")
+    set_param("pam_service_name", "vsftpd")
+    set_param("user_sub_token", "$USER")
+    set_param("local_root", "/home/$USER/ftp")
+
+    with open(conf, "w") as f:
+        f.writelines(lines)
+
+    print("[INFO] Restarting FTP service...")
+    run("systemctl enable vsftpd", check=False)
+    run("systemctl restart vsftpd", check=False)
+
+    status = run("systemctl is-active vsftpd", check=False)
+    if "active" in status.stdout:
+        print("[OK] FTP service running successfully.")
+    else:
+        print("[ERROR] FTP failed to start. Check journalctl -u vsftpd.")
+
+# ==============================
+# CONFIG HTTPS
+# ==============================
+def configure_https():
+    print("=== Automatic HTTPS configuration (Apache2 + SSL) ===")
+
+    res = input("Is Apache2 installed? (y/n) [y]: ").strip().lower() or "y"
+    if res == "y":
+        run("apt update -y && apt install -y apache2 openssl", check=False)
+
+    site = "/etc/apache2/sites-available/default-ssl.conf"
+    backup_file(site)
+
+    domain = input("Enter domain name for HTTPS [default localhost]: ").strip() or "localhost"
+
+    print("[STEP] Generating self-signed certificate...")
+    os.makedirs("/etc/ssl/localcerts", exist_ok=True)
+    run(f"openssl req -x509 -nodes -days 365 -newkey rsa:2048 "
+        f"-keyout /etc/ssl/localcerts/{domain}.key "
+        f"-out /etc/ssl/localcerts/{domain}.crt "
+        f"-subj '/CN={domain}'", check=False)
+
+    run("a2enmod ssl", check=False)
+    run("a2ensite default-ssl", check=False)
+
+    print("[STEP] Updating SSL VirtualHost configuration...")
+    with open(site, "r") as f:
+        data = f.read()
+    data = re.sub(r"SSLCertificateFile\s+.*", f"SSLCertificateFile /etc/ssl/localcerts/{domain}.crt", data)
+    data = re.sub(r"SSLCertificateKeyFile\s+.*", f"SSLCertificateKeyFile /etc/ssl/localcerts/{domain}.key", data)
+    with open(site, "w") as f:
+        f.write(data)
+
+    run("systemctl restart apache2", check=False)
+    status = run("systemctl is-active apache2", check=False)
+    if "active" in status.stdout:
+        print(f"[OK] HTTPS active → https://{domain}")
+    else:
+        print("[ERROR] Apache failed to start. Check logs in /var/log/apache2/")
+
+# ==============================
+# CONFIG MAIL
+# ==============================
+def configure_mail():
+    print("=== Automatic Mail configuration (Postfix) ===")
+
+    res = input("Is Postfix installed? (y/n) [y]: ").strip().lower() or "y"
+    if res == "y":
+        run("apt update -y && apt install -y postfix mailutils", check=False)
+
+    domain = input("Enter mail domain [default empresa.local]: ").strip() or "empresa.local"
+    relay = input("Relay host (empty = none): ").strip()
+
+    main_cf = "/etc/postfix/main.cf"
+    backup_file(main_cf)
+
+    cfg = [
+        "myhostname = mail." + domain,
+        "myorigin = /etc/mailname",
+        "mydestination = $myhostname, localhost.$mydomain, localhost",
+        "relayhost = " + (relay if relay else ""),
+        "mynetworks = 127.0.0.0/8",
+        "inet_interfaces = all",
+        "inet_protocols = ipv4",
+        "home_mailbox = Maildir/"
+    ]
+
+    with open(main_cf, "w") as f:
+        f.write("\n".join(cfg) + "\n")
+
+    run(f"echo {domain} > /etc/mailname", check=False)
+    run("systemctl enable postfix && systemctl restart postfix", check=False)
+
+    status = run("systemctl is-active postfix", check=False)
+    if "active" in status.stdout:
+        print(f"[OK] Mail service ready for domain {domain}")
+    else:
+        print("[ERROR] Postfix could not start. Check logs in /var/log/mail.log")
 
 # ==============================
 # COMMUNICATION FUNCTIONS
@@ -847,7 +979,6 @@ def main():
         "7. configure https\n" 
         "8. configure mail\n"
         "9. update local-hosts\n"
-        "10.update dns client list\n"
         "Option\n> "))
     
 
@@ -880,11 +1011,11 @@ def main():
             ip_servidor = input("Enter the server IP address: ").strip()
             configurar_dns(zona=zona, ip_servidor=ip_servidor)
         case 6:
-            print("coming soon")
+            configure_ftp()
         case 7:
-            print("coming soon")
+            configure_https()
         case 8:
-            print("coming soon")
+            configure_mail()
         case 9:
             send_to_hosts("UPDATE_HOSTS")
 
