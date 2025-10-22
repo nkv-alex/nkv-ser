@@ -865,10 +865,12 @@ def configure_mail():
 
 def configure_nfs():
     print("=== Automatic NFS configuration (Network File System) ===")
-
+    
     # Instalación de paquetes
-    print("[INFO] Installing NFS server packages...")
-    run("apt update -y && apt install -y nfs-kernel-server", check=False)
+    res = input("Is NFS server installed? (y/n) [y]: ").strip().lower() or "y"
+    if res == "y":
+        print("[INFO] Installing NFS server packages...")
+        run("apt update -y && apt install -y nfs-kernel-server", check=False)
 
     exports = "/etc/exports"
     backup_file(exports)
