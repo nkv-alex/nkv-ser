@@ -1097,69 +1097,75 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
     return discovered_total
 
 def main():
-    O = int(input(
-        "\nSelect an option:\n"
-        "1. DEBUG\n"
-        "2. Configure SSH\n"
-        "3. Configure DHCP\n"
-        "4. configure nat\n"
-        "5. configure DNS\n"
-        "6. configure ftp\n"
-        "7. configure https\n" 
-        "8. configure mail\n"
-        "9. update local-hosts\n"
-        "10. Configure NFS\n"
-        "Option\n> "))
-    
+    global interfaces, LOG_ACTIVE
+    while True:
+        try:
+            O = int(input(
+                "\nSelect an option:\n"
+                "1. DEBUG\n"
+                "2. Configure SSH\n"
+                "3. Configure DHCP\n"
+                "4. configure nat\n"
+                "5. configure DNS\n"
+                "6. configure ftp\n"
+                "7. configure https\n" 
+                "8. configure mail\n"
+                "9. update local-hosts\n"
+                "10. Configure NFS\n"
+                "Option\n> "))
+        
 
-    match O:
-        case 1:
-            Z = int(input("\nSelect an option:\n"
-                          "1. Test connection\n"
-                          "2. test interfaces\n"
-                          "3. update dns client list\n"
-                          "4. activate logs\n"
-                          "5. update dhcp client list\n"
-                          "Option\n> "))
-            match Z:
+            match O:
                 case 1:
-                    detect_interfaces()
-                    send_to_hosts("test")
+                    Z = int(input("\nSelect an option:\n"
+                                "1. Test connection\n"
+                                "2. test interfaces\n"
+                                "3. update dns client list\n"
+                                "4. activate logs\n"
+                                "5. update dhcp client list\n"
+                                "Option\n> "))
+                    match Z:
+                        case 1:
+                            detect_interfaces()
+                            send_to_hosts("test")
+                        case 2:
+                            detect_interfaces()
+                            print(interfaces)
+                        case 3:
+                            actualizar_dns_local()
+                        case 4:
+                            LOG_ACTIVE = True
+                            print("[INFO] Logging activated.")
+                        case 5:
+                            update_dhcp_client_list()
                 case 2:
-                    detect_interfaces()
-                    print(interfaces)
+                    configure_ssh()
                 case 3:
-                    actualizar_dns_local()
+                    detect_interfaces()
+                    configure_dhcp()
+                    send_to_hosts("config_dhcp")
                 case 4:
-                    LOG_ACTIVE = True
-                    print("[INFO] Logging activated.")
+                    nat_configuration()
                 case 5:
-                    update_dhcp_client_list()
-        case 2:
-            configure_ssh()
-        case 3:
-            detect_interfaces()
-            configure_dhcp()
-            send_to_hosts("config_dhcp")
-        case 4:
-            nat_configuration()
-        case 5:
-            zona = input("Enter the domain name (e.g., example.com): ").strip()
-            ip_servidor = input("Enter the server IP address: ").strip()
-            configurar_dns(zona=zona, ip_servidor=ip_servidor)
-        case 6:
-            configure_ftp()
-        case 7:
-            configure_https()
-        case 8:
-            configure_mail()
-        case 9:
-            send_to_hosts("UPDATE_HOSTS")
-        case 10:
-            run("clear")
-            configure_nfs()
-        case _:
-            print("Invalid option.")
+                    zona = input("Enter the domain name (e.g., example.com): ").strip()
+                    ip_servidor = input("Enter the server IP address: ").strip()
+                    configurar_dns(zona=zona, ip_servidor=ip_servidor)
+                case 6:
+                    configure_ftp()
+                case 7:
+                    configure_https()
+                case 8:
+                    configure_mail()
+                case 9:
+                    send_to_hosts("UPDATE_HOSTS")
+                case 10:
+                    run("clear")
+                    configure_nfs()
+                case _:
+                    print("Invalid option.")
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
 
 
 
