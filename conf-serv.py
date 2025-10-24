@@ -51,7 +51,6 @@ def backup_file(path):
         shutil.copy2(path, dest)
 
 
-
 class Logger:
     def __init__(self, logfile=LOG_PATH):
         os.makedirs(os.path.dirname(logfile), exist_ok=True)
@@ -66,13 +65,22 @@ class Logger:
         self.log.write(line)
 
     def flush(self):
-        pass  # requerido para compatibilidad con sys.stdout
+        pass  # requerido por sys.stdout
 
-def log():
-    """Redirige stdout y stderr al log corporativo."""
-    sys.stdout = Logger()
-    sys.stderr = sys.stdout
-    print(f"=== LOG SESSION START {datetime.now()} ===\n")
+class log:
+    """Context manager para redirigir stdout y stderr."""
+    def __enter__(self):
+        self.logger = Logger()
+        sys.stdout = self.logger
+        sys.stderr = self.logger
+        print(f"=== LOG SESSION START {datetime.now()} ===\n")
+        return self.logger
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print(f"\n=== LOG SESSION END {datetime.now()} ===\n")
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        self.logger.log.close()
 
 # ==============================
 # CONFIG NAT
