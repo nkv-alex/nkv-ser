@@ -9,6 +9,7 @@ import uuid
 import subprocess
 import yaml
 import os
+import shutil
 
 BROADCAST_PORT = 50000
 BUFFER_SIZE = 1024
@@ -113,16 +114,6 @@ def forzar_dhcp():
 
     except Exception as e:
         print(f"[ERROR] {e}")
-def actualizar_dns_local():
-    """
-    Stores the mapping in the format IP?=HOSTNAME in a global variable.
-    """
-    ip = run("ip -o -4 addr show | awk '{print $2,$4}' | grep -Ev '^(lo|docker|veth|br-|virbr|vmnet|tap)' | cut -d " " -f2 | cut -d "/" -f1")
-    hostname = run("hostnamectl | grep 'hostname' | cut -d ':' -f2 |tr -s ' '")
-    global ip_hostname_map
-    key = f"{ip}?={hostname}"
-    ip_hostname_map[key] = True  # Value can be True or any placeholder
-
 def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
     """
     Escucha UDP en bind_ip:port
@@ -159,13 +150,8 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
 
                 case "config_dhcp":
                     forzar_dhcp()
-                    print(f"[listener] Acción config_dhpc ejecutada por {ip}")
+                    print(f"[listener] Acción config_dhcp ejecutada por {ip}")
                     respuesta("hecho")
-
-                case "REQUEST_NAME":
-                    actualizar_dns_local()
-                    print(f"[listener] Acción REQUEST_NAME ejecutada por {ip}")
-                    respuesta(ip_hostname_map)
 
                 case _:
                     print(f"[listener] mensaje desconocido de {ip}: '{text}'")
