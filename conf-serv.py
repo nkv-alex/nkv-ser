@@ -780,7 +780,11 @@ def configure_mail():
 
     res = input("Is Postfix installed? (y/n) [n]: ").strip().lower() or "n"
     if res == "n":
-        run("apt update -y && apt install -y postfix mailutils", check=False)
+        # Preconfigurar Postfix para no interactuar
+        run("echo 'postfix postfix/mailname string empresa.local' | debconf-set-selections", check=False)
+        run("echo 'postfix postfix/main_mailer_type string 'Internet Site'' | debconf-set-selections", check=False)
+        run("apt update -y && DEBIAN_FRONTEND=noninteractive apt install -y postfix mailutils", check=False)
+
 
     if LOG_ACTIVE == True:
         log()
