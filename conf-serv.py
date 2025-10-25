@@ -631,19 +631,36 @@ def configure_ftp():
     run("clear")
     print("=== Automatic FTP configuration (vsftpd) ===")
     
-
-    # Install
+    # --- INSTALLATION BLOCK ---
     res = input("Is vsftpd installed? (y/n) [n]: ").strip().lower() or "n"
     if res == "n":
         run("apt update -y", check=False)
         run("apt install -y vsftpd", check=False)
 
-    if LOG_ACTIVE == True:
+    if LOG_ACTIVE:
         log()
 
     conf = "/etc/vsftpd.conf"
     backup_file(conf)
 
+    # --- ASK USER FOR FTP ROOT PATH ---
+    default_path = "/home/$USER/ftp"
+    custom_path = input(f"Enter FTP root directory [{default_path}]: ").strip()
+    if not custom_path:
+        custom_path = default_path
+
+    # --- CREATE DIRECTORY IF NOT EXISTS ---
+    expanded_path = os.path.expandvars(custom_path)
+    expanded_path = os.path.expanduser(expanded_path)
+    os.makedirs(expanded_path, exist_ok=True)
+
+    user = os.getenv("SUDO_USER") or os.getenv("USER") or "ftpuser"
+    os.system(f"chown -R {user}:{user} '{expanded_path}'")
+    os.system(f"chmod 755 '{expanded_path}'")
+
+    print(f"[OK] FTP directory ready at {expanded_path}")
+
+    # --- MODIFY CONFIGURATION ---
     print("\n[STEP] Customizing vsftpd configuration...")
     with open(conf, "r") as f:
         lines = f.readlines()
@@ -651,7 +668,7 @@ def configure_ftp():
     def set_param(param, value):
         found = False
         for i, l in enumerate(lines):
-            if l.startswith(param):
+            if l.strip().startswith(param):
                 lines[i] = f"{param}={value}\n"
                 found = True
                 break
@@ -667,18 +684,20 @@ def configure_ftp():
     set_param("listen_ipv6", "NO")
     set_param("pam_service_name", "vsftpd")
     set_param("user_sub_token", "$USER")
-    set_param("local_root", "/home/$USER/ftp")
+    set_param("local_root", custom_path)
 
     with open(conf, "w") as f:
         f.writelines(lines)
 
+    # --- RESTART SERVICE ---
     print("[INFO] Restarting FTP service...")
     run("systemctl enable vsftpd", check=False)
     run("systemctl restart vsftpd", check=False)
 
     status = run("systemctl is-active vsftpd", check=False)
-    if "active" in status.stdout:
+    if "active" in getattr(status, "stdout", ""):
         print("[OK] FTP service running successfully.")
+        print(f"[INFO] Users will connect to: {expanded_path}")
     else:
         print("[ERROR] FTP failed to start. Check journalctl -u vsftpd.")
 
