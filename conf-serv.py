@@ -707,43 +707,71 @@ def configure_ftp():
 def configure_https():
     print("=== Automatic HTTPS configuration (Apache2 + SSL) ===")
 
+    # Instalar Apache2 + OpenSSL si no existe
     res = input("Is Apache2 installed? (y/n) [n]: ").strip().lower() or "n"
     if res == "n":
-        run("apt update -y && apt install -y apache2 openssl", check=False)
+        run("apt update -y && apt install -y apache2 openssl ufw", check=False)
 
-    if LOG_ACTIVE == True:
+    if LOG_ACTIVE:
         log()
 
-    site = "/etc/apache2/sites-available/default-ssl.conf"
-    backup_file(site)
+    site_conf = "/etc/apache2/sites-available/default-ssl.conf"
+    backup_file(site_conf)
 
-    domain = input("Enter domain name for HTTPS [default localhost]: ").strip() or "localhost"
+    # Detectar IP del servidor automáticamente
+    ip = input("Enter server IP for HTTPS [auto-detect]: ").strip()
+    if not ip:
+        # detecta la IP principal
+        ip = os.popen("hostname -I | awk '{print $1}'").read().strip()
+        print(f"[INFO] Using detected IP: {ip}")
 
-    print("[STEP] Generating self-signed certificate...")
-    os.makedirs("/etc/ssl/localcerts", exist_ok=True)
+    cert_dir = "/etc/ssl/localcerts"
+    os.makedirs(cert_dir, exist_ok=True)
+
+    key_file = f"{cert_dir}/{ip}.key"
+    crt_file = f"{cert_dir}/{ip}.crt"
+
+    print("[STEP] Generating self-signed certificate for IP...")
     run(f"openssl req -x509 -nodes -days 365 -newkey rsa:2048 "
-        f"-keyout /etc/ssl/localcerts/{domain}.key "
-        f"-out /etc/ssl/localcerts/{domain}.crt "
-        f"-subj '/CN={domain}'", check=False)
+        f"-keyout {key_file} -out {crt_file} "
+        f"-subj '/CN={ip}'", check=False)
 
+    os.chmod(key_file, 0o600)
+    os.chmod(crt_file, 0o644)
+
+    # Habilitar SSL en Apache y sitio default-ssl
     run("a2enmod ssl", check=False)
     run("a2ensite default-ssl", check=False)
 
-    print("[STEP] Updating SSL VirtualHost configuration...")
-    with open(site, "r") as f:
+    # Actualizar VirtualHost con IP
+    with open(site_conf, "r") as f:
         data = f.read()
-    data = re.sub(r"SSLCertificateFile\s+.*", f"SSLCertificateFile /etc/ssl/localcerts/{domain}.crt", data)
-    data = re.sub(r"SSLCertificateKeyFile\s+.*", f"SSLCertificateKeyFile /etc/ssl/localcerts/{domain}.key", data)
-    with open(site, "w") as f:
+
+    # Modifica ServerName
+    if re.search(r"ServerName\s+.*", data):
+        data = re.sub(r"ServerName\s+.*", f"ServerName {ip}", data)
+    else:
+        data = data.replace("</VirtualHost>", f"    ServerName {ip}\n</VirtualHost>")
+
+    # Modifica rutas de certificado
+    data = re.sub(r"SSLCertificateFile\s+.*", f"SSLCertificateFile {crt_file}", data)
+    data = re.sub(r"SSLCertificateKeyFile\s+.*", f"SSLCertificateKeyFile {key_file}", data)
+
+    with open(site_conf, "w") as f:
         f.write(data)
 
+    # Abrir puerto 443 en firewall si UFW activo
+    run("ufw allow 443/tcp", check=False)
+    run("ufw reload", check=False)
+
+    # Reiniciar Apache
     run("systemctl restart apache2", check=False)
     status = run("systemctl is-active apache2", check=False)
-    if "active" in status.stdout:
-        print(f"[OK] HTTPS active → https://{domain}")
+
+    if "active" in getattr(status, "stdout", ""):
+        print(f"[OK] HTTPS active → https://{ip}")
     else:
         print("[ERROR] Apache failed to start. Check logs in /var/log/apache2/")
-
 # ==============================
 # CONFIG MAIL
 # ==============================
