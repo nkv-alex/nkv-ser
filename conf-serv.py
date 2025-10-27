@@ -855,7 +855,8 @@ def configure_nfs():
     print("\n[STEP] Gathering configuration parameters...")
     share_name = input("Name of the NFS shared folder [default shared]: ").strip() or "shared"
     
-    share_path = f"/srv/nfs/{share_name}"
+    path = input("Add the path for the shared folder (default = /srv/nfs/)": ).strip() or "/srv/nfs/"
+    share_path = f"{path}{share_name}"
     subnet = input("Allowed subnet (e.g. 192.168.1.0/24) [default 192.168.1.0/24]: ").strip() or "192.168.1.0/24"
     readonly = input("Read only? (y/n) [n]: ").strip().lower() or "n"
     no_subtr_chk = input("subtree check? (y/n) [n]: ").strip().lower() or "n"
