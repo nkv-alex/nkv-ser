@@ -871,16 +871,14 @@ def configure_nfs():
     # Eliminar entradas previas con la misma ruta
     lines = [l for l in lines if not l.startswith(share_path)]
 
-    
-
-        if readonly == "y" and no_subtr_chk == "y":
-            export_opts = "ro,sync,no_subtree_check"
-        elif readonly == "y" and no_subtr_chk == "n":
-            export_opts = "ro,sync,subtree_check"
-        elif readonly == "n" and no_subtr_chk == "y":
-            export_opts = "rw,sync,no_subtree_check"
-        else:
-            export_opts = "rw,sync,subtree_check"
+    if readonly == "y" and no_subtr_chk == "y":
+        export_opts = "ro,sync,no_subtree_check"
+    elif readonly == "y" and no_subtr_chk == "n":
+        export_opts = "ro,sync,subtree_check"
+    elif readonly == "n" and no_subtr_chk == "y":
+        export_opts = "rw,sync,no_subtree_check"
+    else:
+        export_opts = "rw,sync,subtree_check"
 
 
 
