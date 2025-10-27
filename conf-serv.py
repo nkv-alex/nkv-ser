@@ -898,7 +898,7 @@ def configure_nfs():
     #kurva = input("Is Automount and make permanent in users? (y/n) [n]: ").strip().lower() or "n"
     
     #if kurva = "y"
-        send_to_hosts("mount {share_path}")
+ #send_to_hosts("mount {share_path}")
 
     if "active" in status.stdout:
         print(f"[OK] NFS server running successfully.")
