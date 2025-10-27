@@ -153,6 +153,7 @@ def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
                     print(f"[listener] Acción config_dhcp ejecutada por {ip}")
                     respuesta("hecho")
 
+                case "mount"
                 case _:
                     print(f"[listener] mensaje desconocido de {ip}: '{text}'")
                     respuesta("none")
