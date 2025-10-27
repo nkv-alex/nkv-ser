@@ -45,6 +45,7 @@ def respuesta(mensaje: str):
     print(f"[listener] Respuesta enviada a {ip}:{port} → {mensaje}")
 
 def forzar_dhcp():
+
     try:
         # --- Detección de interfaces activas ---
         res = subprocess.run(
@@ -114,6 +115,8 @@ def forzar_dhcp():
 
     except Exception as e:
         print(f"[ERROR] {e}")
+
+
 def run_listener(bind_ip="0.0.0.0", port=BROADCAST_PORT):
     """
     Escucha UDP en bind_ip:port
