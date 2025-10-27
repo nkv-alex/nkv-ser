@@ -865,8 +865,11 @@ def configure_nfs():
     run(f"chmod -R 777 {share_path}", check=False)
 
     print("[STEP] Updating exports configuration...")
-    with open(exports, "r") as f:
-        lines = f.readlines()
+    try:
+        with open(exports, "r") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        lines = []
 
     # Eliminar entradas previas con la misma ruta
     lines = [l for l in lines if not l.startswith(share_path)]
