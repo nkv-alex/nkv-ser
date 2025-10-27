@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # conf-serv.py
-# Script for Ubuntu 22.04: detect interfaces, ask type, update netplan, enable forwarding, create iptables rules and persist them.
+# Script for Ubuntu 22.04 or Debian 12: add services to the server .
 
 import os
 import subprocess
@@ -868,6 +868,12 @@ def configure_nfs():
     run("systemctl restart nfs-kernel-server", check=False)
 
     status = run("systemctl is-active nfs-kernel-server", check=False)
+
+    kurva = input("Is Automount and make permanent in users? (y/n) [n]: ").strip().lower() or "n"
+    
+    if kurva = "y"
+        send_to_hosts("mount {share_path}")
+
     if "active" in status.stdout:
         print(f"[OK] NFS server running successfully.")
         print(f"[INFO] Shared path: {share_path}")
@@ -877,7 +883,7 @@ def configure_nfs():
         print("[ERROR] NFS service failed to start. Check journalctl -u nfs-kernel-server.")
 
 # ==============================
-# CONFIG NFS
+# CONFIG DNS
 # ==============================
 
 def autoconfig_dns():
@@ -1115,6 +1121,7 @@ def main():
                 case 9:
                     run("clear")
                     configure_nfs()
+                    
                 case 10:
                     autoconfig_dns()
                 case _:
