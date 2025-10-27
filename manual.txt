@@ -1,9 +1,8 @@
-MANUAL CORPORATIVO - RESUMEN FUNCIONAL
+MANUAL DE USO
 ===========================================
-Fecha de emisión: 2025-10-10 07:49:36
+Fecha de emisión: 2025-10-27:11:00
 Autor: nkv-alex
 Autor Manual: Adam Taoufik
-Proyecto: Infraestructura Automatizada Python Suite
 
 ------------------------------------------------------------
 1. DESCRIPCIÓN GENERAL
@@ -11,34 +10,14 @@ Proyecto: Infraestructura Automatizada Python Suite
 Este conjunto de scripts automatiza la configuración de hardware y servicios
 de red en entornos Linux (Ubuntu 22.04+). Los componentes principales son:
 
- - conf-hardware.py → Gestión avanzada de discos, RAIDs y volúmenes LVM.
- - conf-serv.py → Configuración automatizada de NAT, SSH, DHCP y reglas iptables.
+ - conf-ser.py → Configuración automatizada de NAT, SSH, DHCP y reglas iptables.
  - listener.py → Servicio UDP para descubrimiento y control remoto interno.
 
 Cada módulo está diseñado para ejecución con privilegios root
 y emplea utilidades nativas del sistema (mdadm, lvm, netplan, iptables).
 
 ------------------------------------------------------------
-2. MÓDULO: conf-hardware.py
-------------------------------------------------------------
-OBJETIVO: Automatizar la configuración de almacenamiento local y RAID.
-
-FUNCIONALIDADES CLAVE:
- • Formateo masivo de discos y generación uniforme de particiones GPT.
- • Creación, monitoreo y gestión de arreglos RAID (niveles 0,1,5,10).
- • Integración con LVM: creación, extensión, reducción y eliminación de volúmenes lógicos.
- • Limpieza total de discos (wipefs, dd, vgremove, pvremove, etc.).
- • Consola de administración interactiva con menú avanzado de RAID y LVM.
- • Persistencia de configuraciones RAID mediante /etc/mdadm/mdadm.conf.
- • Aplicación de cambios con update-initramfs para arranque correcto.
-
-MENÚ PRINCIPAL:
- 1. RAID Configuration → Creación o gestión de arreglos RAID.
- 2. Coming soon → Módulos futuros de administración de hardware.
- 3. Exit → Salida segura.
-
-------------------------------------------------------------
-3. MÓDULO: conf-serv.py
+2. MÓDULO: conf-serv.py
 ------------------------------------------------------------
 OBJETIVO: Configurar automáticamente la infraestructura de red y servicios.
 
@@ -79,13 +58,13 @@ FUNCIONALIDADES CLAVE:
 ------------------------------------------------------------
 5. REQUISITOS DE SISTEMA
 ------------------------------------------------------------
- • Sistema operativo: Ubuntu Server 22.04 o superior.
+ • Sistema operativo: Ubuntu Server 22.04 o superior o Debian 12.
  • Dependencias: mdadm, lvm2, iptables, isc-dhcp-server, netplan, yaml.
  • Permisos: ejecución con privilegios root (sudo).
  • Red: interfaces funcionales internas/externas para NAT y descubrimiento.
 
 ------------------------------------------------------------
-6. NOTAS CORPORATIVAS
+6. NOTAS 
 ------------------------------------------------------------
  • Todos los scripts siguen el estándar de logging interno [INFO], [WARN], [ERROR], [STEP], [OK].
  • Las copias de seguridad se generan automáticamente antes de sobrescribir archivos críticos.
@@ -96,7 +75,6 @@ FUNCIONALIDADES CLAVE:
 7. AUTOR Y SOPORTE
 ------------------------------------------------------------
 Desarrollado por: nkv-alex
-Comentarios Generados por: OPEN-IA
 Versión inicial: 2025
 Uso interno autorizado. Contactar al administrador de sistemas para soporte.
 
