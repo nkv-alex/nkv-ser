@@ -822,16 +822,76 @@ def configure_mail():
 # CONFIG SAMBA
 # ==============================
 def config_samba():
-    print("=== Automatic SAMBA configuration  ===")
+    print("=== Automatic SAMBA configuration ===")
+
+    if LOG_ACTIVE:
+        log()
 
     # Instalación de paquetes
     res = input("Is Samba installed? (y/n) [n]: ").strip().lower() or "n"
     if res == "n":
-        print("[INFO] Installing samba server packages...")
+        print("[INFO] Installing Samba packages...")
+        run("apt update -y", check=False)
         run("apt install -y samba", check=False)
 
-    if LOG_ACTIVE == True:
-        log()
+    smb_conf = "/etc/samba/smb.conf"
+    backup_file(smb_conf)
+
+    # Directorio compartido
+    default_share = "/srv/samba/shared"
+    shared_dir = input(f"Enter shared directory [{default_share}]: ").strip() or default_share
+    os.makedirs(shared_dir, exist_ok=True)
+
+    # Permisos
+    os.system(f"chmod 2770 '{shared_dir}'")
+    os.system(f"chown root:sambashare '{shared_dir}'")
+
+    # Usuario Samba
+    print("\n[STEP] Samba user configuration:")
+    user = input("Enter user to grant Samba access [default current user]: ").strip() or os.getenv("SUDO_USER") or os.getenv("USER")
+    run(f"id -u {user} >/dev/null 2>&1 || useradd -m {user}", check=False)
+    print(f"[INFO] Setting Samba password for user '{user}'")
+    os.system(f"smbpasswd -a {user}")
+
+    # Crear grupo si no existe
+    run("getent group sambashare || groupadd sambashare", check=False)
+    run(f"usermod -aG sambashare {user}", check=False)
+
+    # Modificar configuración smb.conf
+    print("[INFO] Updating smb.conf ...")
+    with open(smb_conf, "r") as f:
+        data = f.read()
+
+    Ron = input("Read only? (yes/no) [no]: ").strip().lower() or "no"
+    Guest = input("Allow guests? (yes/no) [no]: ").strip().lower() or "no"
+    brawseable = input("Brawseable? (yes/no) [no]: ").strip().lower() or "no"
+
+    if "[shared]" not in data:
+        data += f"""
+    [shared]
+    path = {shared_dir}
+    browseable = {brawseable}
+    read only = {Ron}
+    guest ok = {Guest}
+    valid users = @{user}
+    force group = sambashare
+    create mask = 0660
+    directory mask = 2770
+    """
+    with open(smb_conf, "w") as f:
+        f.write(data)
+
+    # Reiniciar servicio
+    print("[INFO] Restarting Samba service...")
+    run("systemctl enable smbd nmbd", check=False)
+    run("systemctl restart smbd nmbd", check=False)
+
+    status = run("systemctl is-active smbd", check=False)
+    if "active" in status.stdout:
+        print(f"[OK] Samba active. Shared folder: {shared_dir}")
+        print(f"[INFO] Access from Windows via: \\\\{os.popen('hostname -I | awk \"{print $1}\"').read().strip()}\\shared")
+    else:
+        print("[ERROR] Samba service could not start. Check logs with: journalctl -u smbd")
 
 # ==============================
 # CONFIG NFS
@@ -1007,7 +1067,6 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
     # Assumes a global 'interfaces' dict defined from another function
     global interfaces
     internals = [iface for iface, v in interfaces.items() if v["type"] == "internal"]
-    
 
     def get_broadcast(iface):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
