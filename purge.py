@@ -53,9 +53,9 @@ def uninstall_nat():
     print("[OK] NAT y reglas iptables eliminadas.")
 
 def uninstall_dns():
-    run("systemctl stop bind9 || true")
-    run("apt purge -y bind9 bind9utils bind9-doc")
-    run("rm -rf /etc/bind /var/lib/bind")
+    run("systemctl stop dnsmasq || true")
+    run("apt purge -y dnsmasq")
+    run("rm -rf /etc/dnsmasq.conf /var/lib/bind")
     print("[OK] Servidor DNS eliminado.")
 
 def uninstall_ftp():

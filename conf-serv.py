@@ -1092,6 +1092,13 @@ def send_to_hosts(payload, port=50000, timeout=2.0, send=True):
 
     return discovered_total
 
+
+
+# ==============================
+# MAIN
+# ==============================
+
+
 def main():
     global interfaces, LOG_ACTIVE
     while True:
