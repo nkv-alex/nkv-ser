@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # conf-serv.py
-# Script for Ubuntu 22.04 or Debian 12: add services to the server .
 
 import os
 import subprocess
@@ -50,6 +49,33 @@ def backup_file(path):
         print(f"[INFO] Backup {path} -> {dest}")
         shutil.copy2(path, dest)
 
+
+def restore_file(path, version=None):
+    
+    base = os.path.basename(path)
+    backups = sorted(
+        [f for f in os.listdir(BACKUP_DIR)
+         if f.startswith(base) and f.endswith(".bak")],
+        reverse=True
+    )
+
+    if not backups:
+        print(f"[WARN] No hay backups de {base} en {BACKUP_DIR}")
+        return
+
+    if version:
+        backup = next((b for b in backups if version in b), None)
+        if not backup:
+            print(f"[ERROR] No se encontró un backup que contenga '{version}'")
+            return
+    else:
+        backup = backups[0]  # último
+
+    src = os.path.join(BACKUP_DIR, backup)
+    print(f"[INFO] Restaurando {src} -> {path}")
+    subprocess.run(["sudo", "cp", src, path], check=False)
+    subprocess.run(["sudo", "chmod", "600", path], check=False)
+    print(f"[OK] Restauración completada desde {backup}")
 
 class Logger:
     def __init__(self, logfile=LOG_PATH):
@@ -180,11 +206,7 @@ def detect_interfaces():
     return interfaces
 
 def build_netplan_yaml(existing_yaml, interfaces):
-    """
-    existing_yaml: dict (parsed YAML) or {}
-    interfaces: dict as returned by detect_interfaces()
-    Returns modified YAML dict.
-    """
+    
     
 
 
@@ -1151,6 +1173,7 @@ def main():
         try:
             O = int(input(
                 "\nSelect an option:\n"
+                "0. Exit\n"
                 "1. DEBUG\n"
                 "2. Configure SSH\n"
                 "3. Configure DHCP\n"
@@ -1165,13 +1188,16 @@ def main():
         
 
             match O:
+                case 0:
+                    print("Exiting...")
+                    break
                 case 1:
                     Z = int(input("\nSelect an option:\n"
                                 "1. Test connection\n"
                                 "2. test interfaces\n"
                                 "3. activate logs\n"
                                 "4. update dhcp client list\n"
-                                "5. update local-hosts\n"
+                                "5. restore backups\n"
                                 "Option\n> "))
                     match Z:
                         case 1:
@@ -1186,7 +1212,41 @@ def main():
                         case 4:
                             update_dhcp_client_list()
                         case 5:
-                            send_to_hosts("UPDATE_HOSTS")
+                            Z2= int(input("\nSelect an option:\n"
+                                        "1. Restore netplan files\n"
+                                        "2. Restore sshd_config\n"
+                                        "3. Restore dhcpd.conf\n"
+                                        "4. Restore vsftpd.conf\n"
+                                        "5. Restore default-ssl.conf\n"
+                                        "6. Restore main.cf\n"
+                                        "7. Restore smb.conf\n"
+                                        "8. Restore exports\n"
+                                        "Option\n> "))
+                            match Z2:
+                                case 1:
+                                    restore_file("/etc/netplan/")
+                                    
+                                case 2:
+                                    restore_file("/etc/ssh/sshd_config")
+
+                                case 3:
+                                    restore_file("/etc/dhcp/dhcpd.conf")
+
+                                case 4:
+                                    restore_file("/etc/vsftpd.conf")
+
+                                case 5:
+                                    restore_file("/etc/ssl/default-ssl.conf")
+
+                                case 6:
+                                    restore_file("/etc/postfix/main.cf")
+
+                                case 7:
+                                    restore_file("/etc/samba/smb.conf")
+
+                                case 8:
+                                    restore_file("/etc/exports")
+
                 case 2:
                     configure_ssh()
                 case 3:
@@ -1206,7 +1266,6 @@ def main():
                 case 9:
                     run("clear")
                     configure_nfs()
-                    
                 case 10:
                     autoconfig_dns()
                 case _:
