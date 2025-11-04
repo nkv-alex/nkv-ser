@@ -1,23 +1,22 @@
 MANUAL DE USO
 ===========================================
-Fecha de emisión: 2025-10-27:11:00
+Fecha de emisión: 2025-11-4:12:10
 Autor: nkv-alex
-Autor Manual: Adam Taoufik
+Autor Manual: alexandr Tuceac
 
 ------------------------------------------------------------
 1. DESCRIPCIÓN GENERAL
 ------------------------------------------------------------
 Este conjunto de scripts automatiza la configuración de hardware y servicios
-de red en entornos Linux (Ubuntu 22.04+). Los componentes principales son:
+de red en entornos Linux (Debian 13). Los componentes principales son:
 
- - conf-ser.py → Configuración automatizada de NAT, SSH, DHCP y reglas iptables.
+ - conf-ser.py → Configuración automatizada de Servicios.
  - listener.py → Servicio UDP para descubrimiento y control remoto interno.
 
-Cada módulo está diseñado para ejecución con privilegios root
-y emplea utilidades nativas del sistema (mdadm, lvm, netplan, iptables).
+Cada módulo está diseñado para ejecución con privilegios root.
 
 ------------------------------------------------------------
-2. MÓDULO: conf-serv.py
+2.Modulo conf-serv.py
 ------------------------------------------------------------
 OBJETIVO: Configurar automáticamente la infraestructura de red y servicios.
 
@@ -29,21 +28,36 @@ FUNCIONALIDADES CLAVE:
  • Configuración segura de SSH (puerto, root login, usuarios permitidos).
  • Detección y broadcast UDP para descubrir hosts y enviar payloads remotos.
  • Instalación automática de iptables-persistent y servicios críticos.
+ • Configuracion automatica de DHCP.
+ • Configuracion automatica de DNS con dnsmasq.
+ • Configuracion automatica de servidor NFS.
+ • Configuracion automatica de servidor SAMBA.
+ • Configuracion automatica para la base de servidor https(Apache2 + SSL).
+ • Configuracion automatica de servicio mail.
+ • Configuracion automatica de FTP.
+ • Generador automatico de puntos de retroceso y con facil apliaccion.
 
 FLUJO PRINCIPAL (menú):
- 1. Configure NAT
- 2. Configure SSH
- 3. Configure DHCP
- 4. DEBUG / Pruebas de red internas
 
-ARCHIVOS CLAVE GENERADOS:
- - /etc/netplan/ → Configuración de red (copias de seguridad automáticas).
- - /etc/iptables/rules.v4 → Reglas NAT persistentes.
- - /etc/dhcp/dhcpd.conf → Configuración del servicio DHCP.
- - interfaces.json → Registro de interfaces internas/externas detectadas.
+1. DEBUG
+    1.1. Test connection
+    1.2. test interfaces
+    1.3. activate logs
+    1.4. update dhcp client list
+    1.5. restore backups
+2. Configure SSH
+3. Configure DHCP
+4. configure nat
+5. configure ftp
+6. configure https
+7. configure mail
+8. configure samba
+9. Configure NFS
+10. Configure DNS
+
 
 ------------------------------------------------------------
-4. MÓDULO: listener.py
+3. MÓDULO: listener.py
 ------------------------------------------------------------
 OBJETIVO: Servicio ligero UDP para respuesta y control interno.
 
@@ -58,18 +72,17 @@ FUNCIONALIDADES CLAVE:
 ------------------------------------------------------------
 5. REQUISITOS DE SISTEMA
 ------------------------------------------------------------
- • Sistema operativo: Ubuntu Server 22.04 o superior o Debian 12.
- • Dependencias: mdadm, lvm2, iptables, isc-dhcp-server, netplan, yaml.
+ • Sistema operativo:Debian 13.
  • Permisos: ejecución con privilegios root (sudo).
  • Red: interfaces funcionales internas/externas para NAT y descubrimiento.
+
 
 ------------------------------------------------------------
 6. NOTAS 
 ------------------------------------------------------------
  • Todos los scripts siguen el estándar de logging interno [INFO], [WARN], [ERROR], [STEP], [OK].
- • Las copias de seguridad se generan automáticamente antes de sobrescribir archivos críticos.
+ • Las copias de seguridad se generan automáticamente antes de sobrescribir archivos críticos(.bak).
  • Los módulos son independientes pero interoperables en entornos gestionados.
- • Uso recomendado: laboratorios, despliegues controlados, automatización de red y almacenamiento.
 
 ------------------------------------------------------------
 7. AUTOR Y SOPORTE
