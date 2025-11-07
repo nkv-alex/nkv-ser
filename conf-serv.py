@@ -994,7 +994,7 @@ def configure_nfs():
 # CONFIG DNS
 # ==============================
 
-def autoconfig_dns():
+'''def autoconfig_dns():
 
     print("Automatic DNS configuration (dnsmasq)")
 
@@ -1060,7 +1060,7 @@ def autoconfig_dns():
         print(f"[OK] dnsmasq active on {iface} with domain '{domain}'")
         print(f"[INFO] Config path: {conf_path}")
     else:
-        print("[ERROR] dnsmasq failed to start. Check logs with: journalctl -u dnsmasq")
+        print("[ERROR] dnsmasq failed to start. Check logs with: journalctl -u dnsmasq")'''
 
 # ==============================
 # COMMUNICATION FUNCTIONS
@@ -1262,12 +1262,14 @@ def main():
                 case 7:
                     configure_mail()
                 case 8:
-                    config_samba()
+                    #config_samba()
+                    print("a")
                 case 9:
                     run("clear")
                     configure_nfs()
                 case 10:
-                    autoconfig_dns()
+                    #autoconfig_dns()
+                    print("a")
                 case _:
                     print("Invalid option.")
 
