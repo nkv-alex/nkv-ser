@@ -843,7 +843,7 @@ def configure_mail():
 # ==============================
 # CONFIG SAMBA
 # ==============================
-def config_samba():
+'''def config_samba():
     print("=== Automatic SAMBA configuration ===")
 
     if LOG_ACTIVE:
@@ -913,7 +913,7 @@ def config_samba():
         print(f"[OK] Samba active. Shared folder: {shared_dir}")
         print(f"[INFO] Access from Windows via: \\\\{os.popen('hostname -I | awk \"{print $1}\"').read().strip()}\\shared")
     else:
-        print("[ERROR] Samba service could not start. Check logs with: journalctl -u smbd")
+        print("[ERROR] Samba service could not start. Check logs with: journalctl -u smbd") '''
 
 # ==============================
 # CONFIG NFS
