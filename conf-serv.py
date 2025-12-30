@@ -374,8 +374,8 @@ def try_enable_persistent():
         try:
             run("which apt >/dev/null 2>&1", check=True)
             print("[INFO] Trying to install iptables-persistent (if missing)...")
-            run("DEBIAN_FRONTEND=noninteractive apt-get update -y", check=False)
-            run("DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent", check=False)
+            run("DEBIAN_FRONTEND=noninteractive apt update -y", check=False)
+            run("DEBIAN_FRONTEND=noninteractive apt install -y iptables-persistent", check=False)
             run("systemctl enable netfilter-persistent.service", check=False)
             run("systemctl restart netfilter-persistent.service", check=False)
         except Exception:
@@ -545,7 +545,6 @@ def configure_dhcp():
     if LOG_ACTIVE == True:
         log()
 
-
     # Load interfaces.json
     if not os.path.exists("interfaces.json"):
         print("[ERROR] interfaces.json not found.")
@@ -607,7 +606,6 @@ def configure_dhcp():
 
     lease_time = input("Default lease time (seconds) [600]: ").strip() or "600"
     max_lease_time = input("Max lease time (seconds) [7200]: ").strip() or "7200"
-
 
     # Generate dhcpd.conf configuration
     print("[INFO] Writing DHCP configuration...")
@@ -794,6 +792,7 @@ def configure_https():
         print(f"[OK] HTTPS active → https://{ip}")
     else:
         print("[ERROR] Apache failed to start. Check logs in /var/log/apache2/")
+
 # ==============================
 # CONFIG MAIL
 # ==============================
@@ -804,9 +803,8 @@ def configure_mail():
     if res == "n":
         # Preconfigurar Postfix para no interactuar
         run("echo 'postfix postfix/mailname string empresa.local' | debconf-set-selections", check=False)
-        run("echo 'postfix postfix/main_mailer_type string 'Internet Site'' | debconf-set-selections", check=False)
+        run("echo 'postfix postfix/main_mailer_type string Internet Site' | debconf-set-selections", check=False)
         run("apt update -y && DEBIAN_FRONTEND=noninteractive apt install -y postfix mailutils", check=False)
-
 
     if LOG_ACTIVE == True:
         log()
@@ -925,7 +923,7 @@ def configure_nfs():
     res = input("Is NFS server installed? (y/n) [n]: ").strip().lower() or "n"
     if res == "n":
         print("[INFO] Installing NFS server packages...")
-        run("apt update -y && apt install -y nfs-kernel-server portmap", check=False)
+        run("apt update -y && apt install -y nfs-kernel-server", check=False)
 
     if LOG_ACTIVE == True:
         log()
@@ -942,6 +940,7 @@ def configure_nfs():
     subnet = input("Allowed subnet (e.g. 192.168.1.0/24) [default 192.168.1.0/24]: ").strip() or "192.168.1.0/24"
     readonly = input("Read only? (y/n) [n]: ").strip().lower() or "n"
     no_subtr_chk = input("subtree check? (y/n) [n]: ").strip().lower() or "n"
+    
     # Crear carpeta y permisos
     os.makedirs(share_path, exist_ok=True)
     run(f"chmod -R 777 {share_path}", check=False)
@@ -965,8 +964,6 @@ def configure_nfs():
     else:
         export_opts = "rw,sync,subtree_check"
 
-
-
     lines.append(f"{share_path} {subnet}({export_opts})\n")
 
     with open(exports, "w") as f:
@@ -975,12 +972,10 @@ def configure_nfs():
     # Aplicar configuración
     print("[INFO] Applying export configuration...")
     run("exportfs -ra", check=False)
-    run("systemctl enable nfs-kernel-server", check=False)
-    run("systemctl restart nfs-kernel-server", check=False)
+    run("systemctl enable nfs-server", check=False)
+    run("systemctl restart nfs-server", check=False)
 
-    status = run("systemctl is-active nfs-kernel-server", check=False)
-
-    
+    status = run("systemctl is-active nfs-server", check=False)
 
     if "active" in status.stdout:
         print(f"[OK] NFS server running successfully.")
@@ -988,7 +983,7 @@ def configure_nfs():
         print(f"[INFO] Allowed subnet: {subnet}")
         print(f"[INFO] Mount example (client): mount {run('hostname -I | awk {print $1}', check=False).stdout.strip()}:{share_path} /mnt")
     else:
-        print("[ERROR] NFS service failed to start. Check journalctl -u nfs-kernel-server.")
+        print("[ERROR] NFS service failed to start. Check journalctl -u nfs-server.")
 
 # ==============================
 # CONFIG DNS
