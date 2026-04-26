@@ -1,0 +1,9 @@
+Source: nkv-ser
+Section: utils
+Priority: optional
+Maintainer: alex <tuceac72@gmail.com>
+Standards-Version: 4.6.2
+
+Package: nkv-ser
+Architecture: all
+Depends: python3
