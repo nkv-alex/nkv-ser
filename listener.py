@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-listener.py — escucha en la LAN por discovery y mensajes
-Uso seguro: solo en redes/hosts bajo tu control
-"""
+
 import socket
 import platform
 import uuid

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# uninstall-serv.py
-# Desinstalador automático de servicios configurados por conf-serv.py
+
 
 import subprocess
 import os
